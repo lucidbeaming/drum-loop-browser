@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { DrumSynth, type DrumKit } from '#lib/audio/drumSynth.ts';
+	import { FluidSynthOutput, type DrumKit } from '#lib/audio/fluidsynth.ts';
 	import { fixtureLoop } from '#lib/audio/fixtureLoop.ts';
+	import { Scheduler } from '#lib/audio/scheduler.ts';
 
 	const SOUNDFONT = 'lucidrum.sf2';
 
-	let synth: DrumSynth | undefined;
+	let synth: FluidSynthOutput | undefined;
+	let scheduler: Scheduler | undefined;
 	let phase = $state<'idle' | 'loading' | 'ready' | 'playing' | 'error'>('idle');
 	let status = $state('Not started.');
 	let kits = $state<DrumKit[]>([]);
@@ -21,8 +23,9 @@
 		phase = 'loading';
 		status = `Loading FluidSynth and ${SOUNDFONT}…`;
 		try {
-			synth = new DrumSynth();
+			synth = new FluidSynthOutput();
 			await synth.start(`/api/soundfont/${SOUNDFONT}`);
+			scheduler = new Scheduler(synth);
 			kits = await synth.drumKits();
 			phase = 'ready';
 			status = `Loaded ${SOUNDFONT}: ${kits.length} drum kits on bank 128.`;
@@ -42,16 +45,16 @@
 	}
 
 	async function togglePlay() {
-		if (!synth) return;
+		if (!scheduler) return;
 		if (phase === 'playing') {
-			synth.stop();
+			scheduler.stop();
 			phase = 'ready';
 			status = 'Stopped.';
 			console.info('[spike] stopped, peak rms', peak.toFixed(4));
 			return;
 		}
 		peak = 0;
-		await synth.play(fixtureLoop, bpm);
+		await scheduler.play({ id: 'fixture', loop: fixtureLoop, bpm, barTicks: 4 * fixtureLoop.ppq });
 		phase = 'playing';
 		status = `Playing test loop at ${bpm} BPM on ${kitLabel()}.`;
 		setTimeout(() => console.info('[spike] peak rms after 1s', peak.toFixed(4)), 1000);
@@ -69,12 +72,13 @@
 	}
 
 	function changeTempo() {
-		synth?.setTempo(bpm);
+		scheduler?.setTempo(bpm);
 		if (phase === 'playing') status = `Tempo ${bpm} BPM.`;
 	}
 
 	onDestroy(() => {
 		clearInterval(meterTimer);
+		scheduler?.stop();
 		void synth?.close();
 	});
 </script>

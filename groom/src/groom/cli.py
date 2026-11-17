@@ -11,8 +11,9 @@ from rich.console import Console
 from rich.table import Table
 
 from groom import __version__, pipeline
-from groom.fixtures import write_fixture_library
+from groom.fixtures import FIXTURE_RULES, write_fixture_library
 from groom.paths import project_paths
+from groom.rules import DEFAULT_RULES_PATH
 
 app = typer.Typer(help="Offline grooming of the MIDI drum loop library.", no_args_is_help=True)
 console = Console()
@@ -39,6 +40,10 @@ def fixtures(
     out_dir: Annotated[
         Path, typer.Argument(help="Empty folder to write the synthetic library to.")
     ],
+    rules_out: Annotated[
+        Path | None,
+        typer.Option(help="Also write the pack rules for the fixtures here (for `run --rules`)."),
+    ] = None,
 ) -> None:
     """Write the synthetic test library (no licensed content) to OUT_DIR."""
     out = out_dir.expanduser().resolve()
@@ -51,6 +56,10 @@ def fixtures(
         raise typer.BadParameter(f"{out} is not empty", param_hint="OUT_DIR")
     loops = write_fixture_library(out)
     console.print(f"wrote {len(loops)} fixture loops to {out}")
+    if rules_out:
+        rules_out.parent.mkdir(parents=True, exist_ok=True)
+        rules_out.write_text(FIXTURE_RULES)
+        console.print(f"wrote fixture rules to {rules_out}")
 
 
 @app.command()
@@ -58,6 +67,9 @@ def run(
     audio: Annotated[
         bool, typer.Option(help="Check tempos against the WAV demos (cached after the first run).")
     ] = True,
+    rules: Annotated[
+        Path, typer.Option(help="Per-pack naming rules.", exists=True, dir_okay=False)
+    ] = DEFAULT_RULES_PATH,
 ) -> None:
     """Groom the library into data/: normalised MIDI, catalogue.sqlite and reports."""
     p = project_paths()
@@ -65,7 +77,7 @@ def run(
         raise typer.BadParameter(f"library not found: {p.library}")
     started = time.perf_counter()
     with console.status("Grooming the library…"):
-        result = pipeline.run(p, audio=audio)
+        result = pipeline.run(p, rules_path=rules, audio=audio)
     _print_coverage(result.coverage())
     console.print(
         f"{len(result.loops)} loops ({len(result.scan.loops)} files) groomed into {p.data} "

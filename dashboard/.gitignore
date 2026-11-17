@@ -26,3 +26,6 @@ test-results
 
 # FluidSynth WASM + worklet, copied from node_modules by scripts/copy-synth.mjs
 /static/vendor
+
+# Fixture catalogue for the Playwright tests (scripts/fixture-catalogue.mjs)
+/.fixtures
