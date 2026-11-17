@@ -7,6 +7,7 @@ pad each General MIDI drum note should go to, folding GM's many toms and cymbals
 the kit has. Kit files (data/kits/<name>.yaml) are meant to be checked and edited by hand.
 """
 
+import itertools
 import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -163,66 +164,92 @@ def _is_number(text: str) -> bool:
     return text.strip().isdigit()
 
 
-def _cell(fraction: float) -> int:
-    return min(GRID - 1, max(0, int(fraction * GRID)))
+def _groups(values: list[float], n: int) -> list[list[float]] | None:
+    """``values`` split into ``n`` groups at the largest gaps, or None if there are too few."""
+    vs = sorted(values)
+    if len(vs) < n:
+        return None
+    cuts = sorted(sorted(range(1, len(vs)), key=lambda i: vs[i] - vs[i - 1])[-(n - 1) :])
+    return [vs[a:b] for a, b in zip([0, *cuts], [*cuts, len(vs)], strict=True)]
+
+
+def _has_letters(text: str) -> bool:
+    return re.search(r"[^\W\d_]", text) is not None
+
+
+def _split_number(text: str, pad: int, other_number: bool) -> tuple[int | None, str]:
+    """A pad number OCR joined to the label: "13 PERC 1" (Kong) or "SD1 2". A trailing number
+    is only split off when it is the pad's own and no separate pad number was read, so that
+    "BD 1" keeps its 1."""
+    m = re.fullmatch(r"(\d+)\s+(.*\S)", text)
+    if m:
+        return int(m.group(1)), m.group(2)
+    m = re.fullmatch(r"(.*\S)\s+(\d+)", text)
+    if m and int(m.group(2)) == pad and not other_number:
+        return pad, m.group(1)
+    return None, text
 
 
 def pads_from_text(boxes: list[TextBox], labels: dict[str, str]) -> list[Pad]:
     """Group OCR boxes into Kong's 4x4 pads and read each pad's label, number and group.
 
-    The screenshot must be cropped to the pad grid, so each quarter of it is a column or row,
-    and the position decides the pad (bottom-left = 1). The small number beside the label is the
-    pad number and only checks that; a number above the label, nearest the pad's top-left
-    corner, is its group (shared by e.g. the hi-hats), recorded but never used to pick a pad.
+    Kong prints each pad's number and label on one line under the pad, and a number in the
+    pad's top-left corner. The label lines make the four rows (each other box belongs to the
+    first line at or below it) and the boxes' left edges the four columns; the screenshot
+    should be cropped to the pad grid. The position decides the pad (bottom-left = 1); the
+    number beside the label only checks it. The corner number shows the pad number, or the
+    pad's group when it shares one (the hi-hats' "3" in the default kit): that is recorded as
+    ``group``, for information only.
     """
+    words = [b for b in boxes if b.text.strip()]
+    lines = _groups([b.y for b in words if _has_letters(b.text)], GRID)
+    line_ys = [sum(g) / len(g) for g in lines] if lines else None
+    tolerance = max((b.h for b in words if _has_letters(b.text)), default=0.03)
+    columns = _groups([b.x - b.w / 2 for b in words], GRID)
+    col_bounds = (
+        [(a[-1] + b[0]) / 2 for a, b in itertools.pairwise(columns)]
+        if columns
+        else [k / GRID for k in range(1, GRID)]
+    )
+
     cells: dict[int, list[TextBox]] = defaultdict(list)
-    for b in boxes:
-        if b.text.strip():
-            cells[(GRID - 1 - _cell(b.y)) * GRID + _cell(b.x) + 1].append(b)
+    on_line: set[int] = set()  # ids of boxes on their row's label line
+    for b in words:
+        if line_ys:
+            row = next((i for i, y in enumerate(line_ys) if y >= b.y - tolerance), GRID - 1)
+            if abs(b.y - line_ys[row]) <= tolerance:
+                on_line.add(id(b))
+        else:
+            row = min(GRID - 1, int(b.y * GRID))
+            on_line.add(id(b))
+        col = sum(b.x - b.w / 2 > bound for bound in col_bounds)
+        cells[(GRID - 1 - row) * GRID + col + 1].append(b)
 
-    pads = []
+    read: list[tuple[int, str, int | None, int | None]] = []  # pad, label, number, corner
     for n in range(1, GRID * GRID + 1):
-        cell = cells.get(n, [])
-        texts = sorted((b for b in cell if not _is_number(b.text)), key=lambda b: (b.y, b.x))
-        numbers = [b for b in cell if _is_number(b.text)]
-        remarks: list[str] = []
-        label = " ".join(clean_label(b.text) for b in texts)
+        cell = sorted(cells.get(n, []), key=lambda b: b.x)
+        line = [b for b in cell if id(b) in on_line]
+        corner_box = next((b for b in cell if id(b) not in on_line and _is_number(b.text)), None)
+        corner = int(corner_box.text) if corner_box else None
+        numbers = [b for b in line if _is_number(b.text)]
+        number = int(numbers[0].text) if numbers else None
+        text = " ".join(clean_label(b.text) for b in line if not _is_number(b.text))
+        joined, text = _split_number(text, n, number is not None)
+        read.append((n, text, number if number is not None else joined, corner))
 
-        group: int | None = None
-        number: int | None = None
-        if numbers:
-            corner = min(numbers, key=lambda b: b.x + b.y)
-            above_label = bool(texts) and corner.y < texts[0].y - texts[0].h
-            if len(numbers) > 1 or above_label:
-                group = int(corner.text)
-                numbers.remove(corner)
-            if numbers:
-                level = texts[0].y if texts else 0.0
-                number = int(min(numbers, key=lambda b: abs(b.y - level)).text)
-        if number is None:
-            # OCR may join the pad number to the label ("SD1 2")
-            m = re.fullmatch(r"(.*\S)\s+(\d+)", label)
-            if m and int(m.group(2)) == n:
-                label, number = m.group(1), n
+    shared = {c for n, _, _, c in read if c is not None and c != n}
+    pads = []
+    for n, label, number, corner in read:
+        remarks: list[str] = []
         if number is not None and number != n:
             remarks.append(f"the screenshot says pad {number}; its position says pad {n}")
-
         role, confidence = match_role(label, labels) if label else ("none", 1.0)
         if not label:
             remarks.append("no label found")
         if role == UNKNOWN:
             remarks.append(f"label {label!r} not recognised; set its role")
-        pads.append(
-            Pad(
-                n,
-                label,
-                role,
-                FIRST_PAD_NOTE + n - 1,
-                group,
-                confidence,
-                remarks,
-            )
-        )
+        group = corner if corner is not None and (corner != n or corner in shared) else None
+        pads.append(Pad(n, label, role, FIRST_PAD_NOTE + n - 1, group, confidence, remarks))
     return pads
 
 
@@ -239,8 +266,8 @@ def build_gm_map(pads: list[Pad]) -> tuple[dict[int, int], list[int]]:
 
     Exact roles first; a second pad of a role gets GM's alternate note (35 kick, 40 snare).
     GM's six toms fold onto the tom pads high to low, crash/china/splash and ride/bell onto the
-    cymbal pads, side stick onto a rim pad or the second snare, pedal and open hats onto the
-    closed hat when the kit has no pad for them.
+    cymbal pads, side stick onto a rim pad or the second snare; the pedal hat goes to a second
+    closed hat pad, and pedal and open hats onto the closed hat when there's no pad for them.
     """
     by_role: dict[str, list[Pad]] = defaultdict(list)
     for p in sorted(pads, key=_label_order):
@@ -266,7 +293,7 @@ def build_gm_map(pads: list[Pad]) -> tuple[dict[int, int], list[int]]:
 
     closed = nth("closed-hat", 0) or nth("pedal-hat", 0) or nth("open-hat", 0)
     put(42, closed)
-    put(44, nth("pedal-hat", 0), closed)
+    put(44, nth("pedal-hat", 0), nth("closed-hat", 1), closed)
     put(46, nth("open-hat", 0), closed)
 
     toms = (

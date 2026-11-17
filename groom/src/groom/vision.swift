@@ -20,13 +20,25 @@ func ocr(_ path: String) throws -> [[String: Any]] {
     guard let image = NSImage(contentsOfFile: path),
         let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     else { throw Failure(description: "cannot read image \(path)") }
+    // small single digits (Kong's pad corners) are often missed at screenshot size; read an
+    // image scaled up 2x
+    let scale = 2
+    guard
+        let context = CGContext(
+            data: nil, width: cg.width * scale, height: cg.height * scale, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { throw Failure(description: "cannot scale \(path)") }
+    context.interpolationQuality = .high
+    context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width * scale, height: cg.height * scale))
+    guard let scaled = context.makeImage() else { throw Failure(description: "cannot scale \(path)") }
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = false
     request.recognitionLanguages = ["en-US"]  // Kong labels are Latin; avoids e.g. Cyrillic "М"
     request.automaticallyDetectsLanguage = false
     request.minimumTextHeight = 0.008
-    try VNImageRequestHandler(cgImage: cg).perform([request])
+    try VNImageRequestHandler(cgImage: scaled).perform([request])
     return (request.results ?? []).compactMap { observation in
         guard let best = observation.topCandidates(1).first else { return nil }
         let box = observation.boundingBox  // normalised, origin at the bottom left
@@ -77,16 +89,16 @@ func render(_ specPath: String, _ out: String) throws {
         let row = CGFloat((pad.pad - 1) / 4)
         let rect = NSRect(x: col * cell, y: row * cell, width: cell, height: cell)
             .insetBy(dx: cell * 0.04, dy: cell * 0.04)
+        // like Kong: the pad (top three quarters of the cell) shows its number, or its group,
+        // in the corner; the pad number and label are on a line under it
+        let face = NSRect(x: rect.minX, y: rect.minY + cell * 0.2, width: rect.width,
+            height: rect.height - cell * 0.2)
         NSColor(white: 0.3, alpha: 1).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: cell * 0.05, yRadius: cell * 0.05).fill()
-        if let group = pad.group {
-            draw(String(group), at: NSPoint(x: rect.minX + cell * 0.06, y: rect.maxY - cell * 0.2),
-                size: cell * 0.11)
-        }
-        draw(pad.label, at: NSPoint(x: rect.minX + cell * 0.1, y: rect.minY + cell * 0.38),
-            size: cell * 0.12, bold: true)
-        draw(String(pad.pad), at: NSPoint(x: rect.maxX - cell * 0.2, y: rect.minY + cell * 0.38),
-            size: cell * 0.1)
+        NSBezierPath(roundedRect: face, xRadius: cell * 0.05, yRadius: cell * 0.05).fill()
+        draw(String(pad.group ?? pad.pad),
+            at: NSPoint(x: face.minX + cell * 0.05, y: face.maxY - cell * 0.15), size: cell * 0.09)
+        draw(String(pad.pad), at: NSPoint(x: rect.minX, y: rect.minY), size: cell * 0.07)
+        draw(pad.label, at: NSPoint(x: rect.minX + cell * 0.14, y: rect.minY), size: cell * 0.09)
     }
     NSGraphicsContext.restoreGraphicsState()
     guard let png = bitmap.representation(using: .png, properties: [:])

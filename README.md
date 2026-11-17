@@ -106,15 +106,16 @@ uv run groom kit rebuild kong-default                                 # after ed
 uv run groom remap "/Users/lucid/_Audio/drum-loops/Funk set" --kit kong-default   # → data/remapped/Funk set (kong-default)/
 ```
 
-- **Screenshot:** crop it to the 4×4 pad grid. Pad 1 is bottom left and plays note 36; pad n plays 35 + n.
+- **Screenshot:** a screenshot of Kong's 4×4 pad grid, cropped to the pads with their labels, like those in `../screenshots/`. Pad 1 is bottom left and plays note 36; pad n plays 35 + n.
 - **Reading the pads:** text is read with macOS's built-in Vision framework, through a small Swift helper that groom builds once with the system `swiftc` (Xcode command-line tools) into `data/cache/bin`.
   - Labels are matched to drum roles using [`groom/kit-labels.yaml`](groom/kit-labels.yaml), which you can extend.
-  - The number in a pad's corner (e.g. the hi-hats' shared `3`) is recorded as its group and doesn't decide the pad.
+  - Each pad's "<number> <label>" line under it sets the rows; the pad's position decides its number, and the printed number only checks it.
+  - The number in a pad's corner is its own number, or its group when pads share one (the hi-hats' `3` in the default kit); groups are recorded for information and never decide the pad.
   - Anything unrecognised is flagged in the *Check* column.
 - **GM → pad map:** each exact role gets its note first, and a second kick or snare pad gets GM's alternate (35, 40).
   - GM's six toms fold onto the kit's tom pads, high to low.
   - Crash 2, china and splash fold onto the crash; ride 2 and the ride bell onto the ride.
-  - Side stick goes to a rim pad or the second snare.
+  - Side stick goes to a rim pad or the second snare; the pedal hat to a pedal pad or a second closed-hat pad.
   - The kit file says which notes are folded; edit `gm_map` there to override anything.
 - **Remapping:** `groom remap` reads the input folder (it never changes it) and writes the same files and subfolders to `data/remapped/<folder> (<kit>)/`, with `remap-report.csv` listing folded and unmapped notes per file.
   - `--unmapped keep|drop|<pad>` says what happens to notes the kit has no pad for (default `keep`).

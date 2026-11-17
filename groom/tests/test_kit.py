@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import mido
@@ -40,23 +41,30 @@ runner = CliRunner()
 
 
 def default_boxes() -> list[TextBox]:
-    """OCR boxes as Vision returns them for the default kit, with the traps a real screenshot
-    has: corner group numbers, a pad number joined to its label, and an OCR typo."""
+    """OCR boxes laid out like Kong's pads (a corner number in the pad, "<pad> <label>" on a
+    line under it), with the traps a real screenshot has: corner group numbers, a pad number
+    read as a separate box, a label line right on a quarter boundary, and an OCR typo."""
     boxes = []
     for i, label in enumerate(DEFAULT_LABELS):
         pad = i + 1
         col, row_from_top = i % 4, 3 - i // 4
-        x, y = col / 4, row_from_top / 4
-        if pad == 3:
-            boxes.append(TextBox("HH Closed 3", x + 0.12, y + 0.13, 0.12, 0.03))  # joined
+        x, y = col / 4 + 0.02, row_from_top / 4
+        boxes.append(TextBox(str(DEFAULT_GROUPS.get(pad, pad)), x + 0.04, y + 0.06, 0.03, 0.02))
+        line = y + (0.252 if pad == 16 else 0.24)
+        if pad == 1:
+            boxes.append(TextBox("1", x + 0.03, line, 0.02, 0.02))
+            boxes.append(TextBox(label, x + 0.08, line, 0.06, 0.02))
         elif pad == 10:
-            boxes.append(TextBox("T0M M", x + 0.09, y + 0.13, 0.08, 0.03, 0.5))  # typo
+            boxes.append(TextBox("10 T0M M", x + 0.09, line, 0.12, 0.02, 0.5))
         else:
-            boxes.append(TextBox(label, x + 0.09, y + 0.13, 0.08, 0.03))
-            boxes.append(TextBox(str(pad), x + 0.2, y + 0.13, 0.02, 0.02))
-        if pad in DEFAULT_GROUPS:
-            boxes.append(TextBox(str(DEFAULT_GROUPS[pad]), x + 0.03, y + 0.04, 0.02, 0.02))
+            boxes.append(TextBox(f"{pad} {label}", x + 0.09, line, 0.12, 0.02))
     return boxes
+
+
+def ocr_data(name: str) -> list[TextBox]:
+    """Vision's output for a real Kong screenshot (text and positions only)."""
+    rows = json.loads((Path(__file__).parent / "data" / f"{name}.ocr.json").read_text())
+    return [TextBox(**r) for r in rows]
 
 
 def check_default(kit_pads: list[Pad], gm_map: dict[int, int]) -> None:
@@ -70,12 +78,35 @@ def test_default_kit_from_text() -> None:
     kit = kit_from_text("kong-default", "default.png", default_boxes(), LABELS)
     check_default(kit.pads, kit.gm_map)
     assert kit.pads[2].label == "HH Closed"  # the joined pad number is split off
+    assert kit.pads[0].label == "BD 1"  # a separate pad number box leaves the label whole
     assert {30, 34, 60} <= set(kit.unmapped)
     assert not any(p.remarks for p in kit.pads)
 
 
+def test_real_default_kit_screenshot() -> None:
+    kit = kit_from_text("kong-default", "", ocr_data("kong-default"), LABELS)
+    check_default(kit.pads, kit.gm_map)
+    assert [p.label for p in kit.pads] == DEFAULT_LABELS
+    assert not any(p.remarks for p in kit.pads)
+
+
+def test_real_kit_with_three_closed_hats() -> None:
+    kit = kit_from_text("kong-hh3", "", ocr_data("kong-hh3"), LABELS)
+    assert [p.label for p in kit.pads] == [
+        "BD1", "CLAP", "HH CLS 1", "HH OPEN", "BD2", "SD2", "HH CLS 2", "HH CLS 3",
+        "TOM H", "TOM M", "TOM L", "CRASH", "PERC 1", "PERC 2", "PERC 3", "FX",
+    ]  # fmt: skip
+    gm = kit.gm_map
+    assert (gm[42], gm[44], gm[46]) == (38, 42, 39)  # the pedal hat gets the second closed hat
+    assert gm[38] == gm[40] == gm[37] == 41  # the only snare pad is SD2
+    assert gm[39] == 37
+    assert {51, 53, 59} <= set(kit.unmapped)  # no ride pad
+
+
 def test_wrong_pad_number_is_flagged() -> None:
-    boxes = [b if b.text != "7" else TextBox("1", b.x, b.y, b.w, b.h) for b in default_boxes()]
+    boxes = [
+        b if b.text != "7 CLAP" else TextBox("1 CLAP", b.x, b.y, b.w, b.h) for b in default_boxes()
+    ]
     pads = kit_from_text("k", "", boxes, LABELS).pads
     assert pads[6].remarks == ["the screenshot says pad 1; its position says pad 7"]
 
