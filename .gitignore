@@ -100,3 +100,6 @@ patterns/
 
 # --- Local planning docs (not part of the repo) ---
 PLAN.md
+
+# --- Clearance markdown previews ---
+.clearance-*/
