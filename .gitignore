@@ -103,3 +103,19 @@ PLAN.md
 
 # --- Clearance markdown previews ---
 .clearance-*/
+
+# --- Project data (catalogue, normalised MIDI, renders, curation, kits, remaps) ---
+/data/
+
+# --- SoundFonts and rendered audio (kept outside the repo) ---
+*.sf2
+*.sf3
+*.flac
+*.aif
+*.aiff
+*.mp3
+
+# --- Local databases ---
+*.sqlite
+*.sqlite3
+*.db

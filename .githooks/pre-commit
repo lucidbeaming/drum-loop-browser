@@ -1,0 +1,12 @@
+#!/bin/sh
+# Backstop for .gitignore: refuse to commit loop-library content, audio, SoundFonts, databases
+# or anything under data/ / patterns/, even if it was added with `git add -f`.
+blocked=$(git diff --cached --name-only --diff-filter=ACMR |
+	grep -Ei '\.(mid|midi|wav|aif|aiff|flac|mp3|sf2|sf3|sqlite|sqlite3|db)$|^data/|(^|/)patterns/')
+
+if [ -n "$blocked" ]; then
+	echo "pre-commit: these files must not be committed (licensed content, audio or local data):" >&2
+	echo "$blocked" | sed 's/^/  /' >&2
+	echo "Unstage them with: git restore --staged <file>" >&2
+	exit 1
+fi
