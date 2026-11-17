@@ -7,9 +7,12 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "librosa>=1.0.1",
     "mido>=1.3.3",
     "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.6",
     "rich>=15.0.0",
+    "soundfile>=0.14.0",
     "typer>=0.29.1",
 ]
 
@@ -33,7 +36,7 @@ packages = ["groom"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["mido", "mido.*"]
+module = ["mido", "mido.*", "soundfile", "librosa", "librosa.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
