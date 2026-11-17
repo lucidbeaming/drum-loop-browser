@@ -56,7 +56,7 @@ CREATE TABLE features (
 );
 CREATE TABLE tags (
     loop_id TEXT NOT NULL REFERENCES loops, tag TEXT NOT NULL,
-    source TEXT NOT NULL,  -- rule | feature
+    source TEXT NOT NULL,  -- rule | feature | curation
     confidence REAL NOT NULL, PRIMARY KEY (loop_id, tag)
 );
 CREATE TABLE similar (

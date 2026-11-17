@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from groom import __version__, pipeline
+from groom.curation import CurationError
 from groom.fixtures import FIXTURE_RULES, write_fixture_library
 from groom.paths import project_paths
 from groom.render import fluidsynth
@@ -86,7 +87,10 @@ def run(
         raise typer.BadParameter("--render needs the fluidsynth program (brew install fluid-synth)")
     started = time.perf_counter()
     with console.status("Grooming the library…"):
-        result = pipeline.run(p, rules_path=rules, audio=audio, render=render)
+        try:
+            result = pipeline.run(p, rules_path=rules, audio=audio, render=render)
+        except CurationError as e:
+            raise typer.BadParameter(str(e)) from e
     _print_coverage(result.coverage())
     console.print(
         f"{len(result.loops)} loops ({len(result.scan.loops)} files) groomed into {p.data} "

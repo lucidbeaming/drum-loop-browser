@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LoopRow, Pack } from '#lib/catalogue.ts';
+import { emptyCuration } from '#lib/curation.ts';
 import { emptyFilters, matches, searchText, sortRows, type Filters } from './filters';
 
 const packs = new Map<string, Pack>([
@@ -27,7 +28,11 @@ function row(over: Partial<LoopRow>): LoopRow {
 		status: 'ok',
 		noteCount: 10,
 		path: 'A_Pack/Loop.mid',
+		issues: [],
 		tags: [],
+		autoTags: [],
+		curation: emptyCuration(),
+		pending: [],
 		...over
 	};
 }
@@ -36,29 +41,37 @@ const rows = [
 	row({ id: 'a', title: 'Groove 10', bpm: 120 }),
 	row({ id: 'b', title: 'Groove 9', bpm: null, status: 'review', meterNum: 7, meterDen: 8 }),
 	row({ id: 'c', title: 'Fill 1', kind: 'fill', packId: 'B_Pack', bpm: 90, song: 'Test Song' }),
-	row({ id: 'd', title: 'Waltz', meterNum: 3, meterDen: 4, bpm: 140, packId: 'B_Pack' })
+	row({ id: 'd', title: 'Waltz', meterNum: 3, meterDen: 4, bpm: 140, packId: 'B_Pack' }),
+	row({ id: 'e', title: 'Dud', status: 'rejected' }),
+	row({
+		id: 'f',
+		title: 'Fave',
+		curation: { ...emptyCuration(), favourite: true },
+		tags: ['swung']
+	})
 ];
 
-function ids(f: Partial<Filters>): string[] {
+function ids(f: Partial<Filters>, members?: Set<string>): string[] {
 	const filters = { ...emptyFilters(), ...f };
-	return rows.filter((r) => matches(r, searchText(r, packs), filters)).map((r) => r.id);
+	return rows.filter((r) => matches(r, searchText(r, packs), filters, members)).map((r) => r.id);
 }
 
 describe('matches', () => {
 	it('passes everything with empty filters', () => {
-		expect(ids({})).toEqual(['a', 'b', 'c', 'd']);
+		expect(ids({})).toEqual(['a', 'b', 'c', 'd', 'f']);
 	});
 
 	it('searches title, song, pack title and meter, all words required', () => {
 		expect(ids({ query: 'test' })).toEqual(['c']);
 		expect(ids({ query: 'bravo waltz' })).toEqual(['d']);
 		expect(ids({ query: '7/8' })).toEqual(['b']);
-		expect(ids({ query: 'GROOVE alpha' })).toEqual(['a', 'b']);
+		expect(ids({ query: 'GROOVE alpha' })).toEqual(['a', 'b', 'f']);
+		expect(ids({ query: 'swung' })).toEqual(['f']); // tags
 	});
 
 	it('filters by BPM range and leaves out unknown BPMs when a range is set', () => {
-		expect(ids({ bpmMin: 100 })).toEqual(['a', 'd']);
-		expect(ids({ bpmMin: 90, bpmMax: 120 })).toEqual(['a', 'c']);
+		expect(ids({ bpmMin: 100 })).toEqual(['a', 'd', 'f']);
+		expect(ids({ bpmMin: 90, bpmMax: 120 })).toEqual(['a', 'c', 'f']);
 	});
 
 	it('filters by meter: exact, odd or any', () => {
@@ -71,11 +84,21 @@ describe('matches', () => {
 		expect(ids({ kinds: ['fill'] })).toEqual(['c']);
 		expect(ids({ view: 'review' })).toEqual(['b']);
 	});
+
+	it('hides rejected loops except in the rejected view', () => {
+		expect(ids({ view: 'rejected' })).toEqual(['e']);
+		expect(ids({ query: 'dud' })).toEqual([]);
+	});
+
+	it('filters favourites and collections', () => {
+		expect(ids({ view: 'favourites' })).toEqual(['f']);
+		expect(ids({ collection: 1 }, new Set(['c', 'e', 'f']))).toEqual(['c', 'f']);
+	});
 });
 
 describe('sortRows', () => {
 	const sorted = (key: Parameters<typeof sortRows>[1]['key'], dir: 'ascending' | 'descending') =>
-		sortRows(rows, { key, dir }, packs).map((r) => r.id);
+		sortRows(rows.slice(0, 4), { key, dir }, packs).map((r) => r.id);
 
 	it('sorts titles naturally', () => {
 		expect(sorted('title', 'ascending')).toEqual(['c', 'b', 'a', 'd']);

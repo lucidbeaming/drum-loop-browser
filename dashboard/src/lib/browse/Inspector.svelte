@@ -1,6 +1,14 @@
 <script lang="ts">
-	import { meterLabel, type BpmCheck, type LoopDetail, type Pack } from '#lib/catalogue.ts';
+	import {
+		meterLabel,
+		type BpmCheck,
+		type Collection,
+		type LoopDetail,
+		type Pack
+	} from '#lib/catalogue.ts';
 	import DrumGrid from '#lib/grid/DrumGrid.svelte';
+	import { tick } from 'svelte';
+	import Curate, { type CurationActions } from './Curate.svelte';
 
 	interface Props {
 		loop: LoopDetail | null;
@@ -13,9 +21,38 @@
 		ontoggle: () => void;
 		/** Show another loop (from the similar-loops list). */
 		onselect: (id: string) => void;
+		collections: Collection[];
+		actions: CurationActions;
 	}
 
-	let { loop, loading, packs, playing, playhead, tempo, ontoggle, onselect }: Props = $props();
+	let {
+		loop,
+		loading,
+		packs,
+		playing,
+		playhead,
+		tempo,
+		ontoggle,
+		onselect,
+		collections,
+		actions
+	}: Props = $props();
+
+	let fixOpen = $state(false);
+
+	async function openFix() {
+		fixOpen = true;
+		await tick();
+		document.getElementById('fix-bpm')?.focus();
+	}
+
+	function bpmNote(l: LoopDetail): string {
+		if (l.curation.fixes.bpm !== undefined) return 'set by you';
+		if (l.bpmSource === 'sibling-demo') {
+			return 'from the demo of another loop in this group; not checked';
+		}
+		return BPM_CHECK[l.bpmCheck];
+	}
 
 	const BPM_CHECK: Record<BpmCheck, string> = {
 		confirmed: 'confirmed by the demo',
@@ -50,11 +87,7 @@
 			<dt>BPM</dt>
 			<dd>
 				{loop.bpm ?? '—'}
-				<span class="note">
-					{loop.bpmSource === 'sibling-demo'
-						? 'from the demo of another loop in this group; not checked'
-						: BPM_CHECK[loop.bpmCheck]}
-				</span>
+				<span class="note">{bpmNote(loop)}</span>
 				{#if tempo && tempo !== loop.bpm}<span class="note">plays at {tempo}</span>{/if}
 			</dd>
 			<dt>Meter</dt>
@@ -63,15 +96,30 @@
 			<dd>{loop.bars}</dd>
 			<dt>Hits</dt>
 			<dd>{loop.noteCount}</dd>
-			{#if loop.tags.length}
-				<dt>Tags</dt>
-				<dd>
-					<ul class="tags">
-						{#each loop.tags as tag (tag)}<li>{tag}</li>{/each}
-					</ul>
-				</dd>
-			{/if}
 		</dl>
+
+		{#if loop.status === 'rejected' || loop.status === 'duplicate'}
+			<p class="status">
+				{loop.status === 'rejected'
+					? 'Rejected: hidden outside the Rejected view.'
+					: 'Marked as a duplicate.'}
+				<button
+					type="button"
+					class="link"
+					onclick={() =>
+						loop.status === 'rejected'
+							? actions.patch([loop.id], { rejected: false })
+							: actions.fix([loop.id], 'status', null)}>Undo</button
+				>
+			</p>
+		{:else if loop.curation.fixes.status === 'ok'}
+			<p class="status">
+				Kept after review.
+				<button type="button" class="link" onclick={() => actions.fix([loop.id], 'status', null)}
+					>Undo</button
+				>
+			</p>
+		{/if}
 
 		{#if loop.status === 'review'}
 			<div class="review">
@@ -91,6 +139,16 @@
 							.join(', ')}
 					</p>
 				{/if}
+				<div class="actions" role="group" aria-label="Review">
+					<button type="button" onclick={() => actions.fix([loop.id], 'status', 'ok')}>Keep</button>
+					<button type="button" onclick={openFix}>Fix…</button>
+					<button type="button" onclick={() => actions.fix([loop.id], 'status', 'duplicate')}
+						>Duplicate</button
+					>
+					<button type="button" onclick={() => actions.patch([loop.id], { rejected: true })}
+						>Reject</button
+					>
+				</div>
 			</div>
 		{/if}
 
@@ -111,6 +169,8 @@
 				</figure>
 			{/each}
 		{/if}
+
+		<Curate {loop} {collections} {actions} bind:fixOpen />
 
 		{#if loop.similar.length}
 			<h3>Similar loops</h3>
@@ -207,19 +267,31 @@
 	.review p {
 		padding: 0.25rem 0 0;
 	}
-	.tags {
+	.actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.25rem;
-		margin: 0;
-		padding: 0;
-		list-style: none;
+		gap: 0.375rem;
+		padding-top: 0.5rem;
 	}
-	.tags li {
-		padding: 0 0.4rem;
+	.actions button {
+		padding: 0.2rem 0.6rem;
 		border: 1px solid var(--line);
-		border-radius: 3px;
-		font-size: 0.8125rem;
+		border-radius: 4px;
+		background: var(--surface);
+		cursor: pointer;
+	}
+	.status {
+		margin: 0 0 0.75rem;
+		color: var(--muted);
+	}
+	.link {
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--accent);
+		font: inherit;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 	.similar {
 		margin: 0;

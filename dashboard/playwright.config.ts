@@ -12,7 +12,8 @@ export default defineConfig({
 		env: {
 			DRUM_DATA_DIR: path.join(fixtures, 'data'),
 			DRUM_LIBRARY_DIR: path.join(fixtures, 'library'),
-			DRUM_SOUNDFONT_DIR: path.join(fixtures, 'no-soundfonts')
+			DRUM_SOUNDFONT_DIR: path.join(fixtures, 'no-soundfonts'),
+			DRUM_EXPORT_DIR: path.join(fixtures, 'exports')
 		}
 	},
 	testMatch: '**/*.e2e.{ts,js}'

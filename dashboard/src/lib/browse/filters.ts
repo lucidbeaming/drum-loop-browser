@@ -1,6 +1,7 @@
 import { meterLabel, type LoopRow, type Pack } from '#lib/catalogue.ts';
 
-export type View = 'all' | 'review';
+/** Rejected loops only show in the 'rejected' view. */
+export type View = 'all' | 'favourites' | 'review' | 'rejected';
 
 /** Meter filter: any meter, the common ones, everything else, or one exact meter like "7/8". */
 export type MeterFilter = 'any' | 'odd' | string;
@@ -8,6 +9,8 @@ export type MeterFilter = 'any' | 'odd' | string;
 export interface Filters {
 	view: View;
 	pack: string | null;
+	/** Show only this collection's loops. */
+	collection: number | null;
 	query: string;
 	bpmMin: number | null;
 	bpmMax: number | null;
@@ -21,6 +24,7 @@ export function emptyFilters(): Filters {
 	return {
 		view: 'all',
 		pack: null,
+		collection: null,
 		query: '',
 		bpmMin: null,
 		bpmMax: null,
@@ -55,8 +59,17 @@ export function searchText(row: LoopRow, packs: Map<string, Pack>): string {
 		.toLowerCase();
 }
 
-export function matches(row: LoopRow, text: string, f: Filters): boolean {
+/** Whether a row passes the filters; ``members`` holds the IDs in ``f.collection``. */
+export function matches(
+	row: LoopRow,
+	text: string,
+	f: Filters,
+	members?: ReadonlySet<string>
+): boolean {
+	if ((f.view === 'rejected') !== (row.status === 'rejected')) return false;
 	if (f.view === 'review' && row.status !== 'review') return false;
+	if (f.view === 'favourites' && !row.curation.favourite) return false;
+	if (f.collection !== null && !members?.has(row.id)) return false;
 	if (f.pack && row.packId !== f.pack) return false;
 	if (f.kinds.length && !f.kinds.includes(row.kind)) return false;
 	if (f.meter !== 'any') {
