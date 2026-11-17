@@ -97,3 +97,6 @@ patterns/
 *.mid
 *.midi
 *.wav
+
+# --- Local planning docs (not part of the repo) ---
+PLAN.md
