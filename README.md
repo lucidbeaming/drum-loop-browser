@@ -69,7 +69,10 @@ uv run groom fixtures /tmp/fx    # write the synthetic test library
 1. **Names → metadata** using the per-pack rules in [`groom/packs.yaml`](groom/packs.yaml): BPM, meter, bar count, kind (groove, fill, break, ending), style, song/artist.
 2. **Bars from the notes** when the name doesn't say: the last hit decides, with a ⅛-beat allowance for slightly late hits. End-of-track markers are ignored (some files put them at beat 400).
 3. **Tempo checked against the vendor's WAV demos.** Each BPM candidate (file name, folder, demo name, MIDI tempo) is scored against the demo's onset periodicity. Names disagree surprisingly often, and the MIDI tempo events in particular are mostly wrong.
-4. **Normalised copy** in `data/normalised/<loop_id>.mid`: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars. Timing and velocities are untouched. Hits at or just past the loop end wrap to the start.
+4. **Normalised copy** in `data/normalised/<loop_id>.mid`: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars. Timing and velocities are untouched. Additionally:
+   - Hits at or just past the loop end wrap to the start.
+   - Hits last at least a 16th note, but never into the next hit on the same drum. Most vendor hits have zero length, and synths that honour note-off, FluidSynth included, would cut them to almost nothing.
+   - A loop that isn't a whole number of beats long (e.g. one bar of 15/8 = 7.5 beats) is repeated until it is, because DAWs such as REAPER round a MIDI clip up to a whole beat. This affects 138 loops.
 5. **Catalogue and reports:** `data/catalogue.sqlite`, plus `data/reports/coverage.csv`, `review.csv` and `previews.csv`.
 
 Each loop's `bpm_check` says how far its tempo can be trusted:

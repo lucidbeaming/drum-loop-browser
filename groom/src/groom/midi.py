@@ -12,6 +12,7 @@ NORMALISED_PPQ = 480
 DRUM_CHANNEL = 9  # MIDI channel 10
 LATE_HIT_TOLERANCE = Fraction(1, 8)  # beats past a bar line still counted as the previous bar
 MIN_NOTE_TICKS = 1
+ONE_SHOT_TICKS = NORMALISED_PPQ // 4  # hits last at least a 16th note (many are zero-length)
 
 
 @dataclass(frozen=True)
@@ -114,9 +115,39 @@ def fit_to_length(notes: list[Note], length: int) -> LoopNotes:
             continue
         inside.append(Note(t, n.key, n.vel, n.dur))
         wrapped += 1
-    fitted = [Note(n.tick, n.key, n.vel, min(n.dur, length - n.tick)) for n in inside]
-    fitted.sort(key=lambda n: (n.tick, n.key))
-    return LoopNotes(fitted, length, wrapped, dropped)
+    inside.sort(key=lambda n: (n.tick, n.key))
+    return LoopNotes(_one_shot_durations(inside, length), length, wrapped, dropped)
+
+
+def _one_shot_durations(notes: list[Note], length: int) -> list[Note]:
+    """Lengthen very short hits to ONE_SHOT_TICKS, without overlapping the next hit on the same
+    drum or running past the loop end. Synths that honour note-off (FluidSynth included) would
+    otherwise cut zero-length hits to almost nothing."""
+    next_onset: dict[int, int] = {}
+    out: list[Note] = []
+    for n in reversed(notes):
+        limit = min(next_onset.get(n.key, length), length) - n.tick
+        dur = max(MIN_NOTE_TICKS, min(max(n.dur, ONE_SHOT_TICKS), limit))
+        out.append(Note(n.tick, n.key, n.vel, dur))
+        next_onset[n.key] = n.tick
+    return out[::-1]
+
+
+def whole_beat_repeats(bars: int, meter: tuple[int, int]) -> int:
+    """How many times to repeat a loop so it lasts a whole number of quarter-note beats.
+    DAWs such as REAPER round a MIDI clip's length up to a whole beat, so a one-bar 15/8 loop
+    (7.5 beats) would otherwise repeat every 8 beats."""
+    num, den = meter
+    return next(k for k in range(1, den + 1) if (k * bars * num * 4) % den == 0)
+
+
+def repeat_loop(loop: LoopNotes, times: int) -> LoopNotes:
+    notes = [
+        Note(n.tick + r * loop.length, n.key, n.vel, n.dur)
+        for r in range(times)
+        for n in loop.notes
+    ]
+    return LoopNotes(notes, loop.length * times, loop.wrapped, loop.dropped)
 
 
 def loop_id(loop: LoopNotes, meter: tuple[int, int]) -> str:

@@ -6,6 +6,7 @@ import mido
 import pytest
 
 from groom.fixtures import FIXTURES, FixtureLoop
+from groom.midi import whole_beat_repeats
 from groom.paths import Paths
 from groom.pipeline import RunResult, run
 from groom.store import SCHEMA_VERSION
@@ -27,7 +28,8 @@ def rows(result: RunResult, paths: Paths) -> dict[str, sqlite3.Row]:
 def test_loop_metadata(rows: dict[str, sqlite3.Row], fx: FixtureLoop) -> None:
     row = rows[fx.rel_path]
     assert (row["meter_num"], row["meter_den"]) == fx.meter
-    assert row["bars"] == fx.bars
+    # loops a fractional number of beats long are repeated to whole beats (1 bar of 7/8 -> 2)
+    assert row["bars"] == fx.bars * whole_beat_repeats(fx.bars, fx.meter)
     assert row["kind"] == fx.kind
     assert row["bpm_check"] == fx.bpm_check, json.loads(row["bpm_candidates"])
     if fx.bpm is None:
@@ -56,7 +58,8 @@ def test_normalised_files(rows: dict[str, sqlite3.Row], paths: Paths) -> None:
         assert mid.ticks_per_beat == 480
         assert sum(m.time for m in mid.tracks[0]) == row["length_ticks"]
         num, den = fx.meter
-        assert row["length_ticks"] == fx.bars * num * 4 * 480 // den
+        assert row["length_ticks"] == row["bars"] * num * 4 * 480 // den
+        assert row["length_ticks"] % 480 == 0  # a whole number of beats
         assert {m.channel for m in mid.tracks[0] if m.type == "note_on"} == {9}
 
 

@@ -12,6 +12,8 @@ from groom.midi import (
     infer_bars,
     loop_id,
     parse_midi,
+    repeat_loop,
+    whole_beat_repeats,
 )
 
 Q = NORMALISED_PPQ
@@ -58,6 +60,17 @@ def test_fit_trims_durations_at_loop_end() -> None:
     assert fitted.notes[0].dur == 10
 
 
+def test_zero_length_hits_become_one_shots_without_overlap() -> None:
+    notes = [Note(0, 42, 80, 1), Note(Q // 8, 42, 80, 1), Note(Q, 36, 100, 1)]
+    fitted = fit_to_length(notes, 4 * Q)
+    durs = {(n.tick, n.key): n.dur for n in fitted.notes}
+    assert durs[(0, 42)] == Q // 8  # stops at the next hat (a 32nd later)
+    assert durs[(Q // 8, 42)] == Q // 4  # a 16th note
+    assert durs[(Q, 36)] == Q // 4
+    long = fit_to_length([Note(0, 49, 100, 2 * Q)], 4 * Q)
+    assert long.notes[0].dur == 2 * Q  # longer hits keep their length
+
+
 def test_loop_id_depends_on_content_not_tempo() -> None:
     a = fit_to_length([Note(0, 36, 100, 10)], 4 * Q)
     b = fit_to_length([Note(0, 36, 101, 10)], 4 * Q)
@@ -79,3 +92,18 @@ def test_build_normalised_round_trip(tmp_path: Path) -> None:
     notes = [m for m in msgs if m.type == "note_on"]
     assert {m.channel for m in notes} == {9}
     assert [m.note for m in notes] == [36, 38]
+
+
+def test_whole_beat_repeats() -> None:
+    assert whole_beat_repeats(1, (4, 4)) == 1
+    assert whole_beat_repeats(2, (7, 8)) == 1  # 7 beats
+    assert whole_beat_repeats(1, (15, 8)) == 2  # 7.5 beats -> 15
+    assert whole_beat_repeats(3, (9, 8)) == 2
+    assert whole_beat_repeats(1, (7, 16)) == 4
+
+
+def test_repeat_loop() -> None:
+    once = fit_to_length([Note(0, 36, 100, 10), Note(Q, 38, 90, 10)], 3 * Q // 2 * 5)
+    twice = repeat_loop(once, 2)
+    assert twice.length == 2 * once.length
+    assert [n.tick for n in twice.notes] == [0, Q, once.length, once.length + Q]

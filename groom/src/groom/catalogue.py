@@ -14,6 +14,8 @@ from groom.midi import (
     infer_bars,
     loop_id,
     parse_midi,
+    repeat_loop,
+    whole_beat_repeats,
 )
 from groom.names import kind_from_token, meter_from_words, split_camel
 from groom.rules import PackRules, best_matches
@@ -332,6 +334,13 @@ def normalise(loop: Loop) -> None:
         loop.remarks.append(
             f"hits past loop end: {loop.fitted.wrapped} wrapped, {loop.fitted.dropped} dropped"
         )
+    times = whole_beat_repeats(loop.bars, loop.meter)
+    if times > 1:
+        loop.fitted = repeat_loop(loop.fitted, times)
+        loop.remarks.append(
+            f"repeated {times}x to {loop.bars * times} bars so the length is whole beats"
+        )
+        loop.bars *= times
     loop.loop_id = loop_id(loop.fitted, loop.meter)
 
 
