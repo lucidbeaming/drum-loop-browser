@@ -1,0 +1,31 @@
+# Kong pad labels -> drum roles, for `groom kit from-screenshot`.
+#
+# Labels are normalised before matching: upper case, anything but letters and digits becomes a
+# space. A label is matched exactly first ("TOM 1"), then without trailing digits ("SD1" -> SD),
+# then fuzzily (OCR typos such as "HH CL0SED"). Add your own labels to the lists.
+#
+# Roles with GM notes (see groom/src/groom/kit.py): kick, snare, rim, clap, closed-hat,
+# pedal-hat, open-hat, tom-high, tom-mid, tom-low, tom, crash, china, splash, ride, ride-bell,
+# cowbell, tambourine, cabasa. "none" is a pad with no GM equivalent (left free).
+
+roles:
+  kick: [BD, KICK, BASS DRUM, BASS, KIK, KCK]
+  snare: [SD, SNARE, SNR, SN]
+  rim: [RIM, RIMSHOT, RIM SHOT, SIDE STICK, SIDESTICK, STICK, XSTICK]
+  clap: [CLAP, HANDCLAP, HAND CLAP, CLP]
+  closed-hat: [HH CLOSED, HH CLS, HH CL, HH C, CLOSED HAT, CL HAT, CHH, HAT CLOSED, HH, HAT]
+  pedal-hat: [HH TIGHT, HH PEDAL, HH PED, PEDAL, PEDAL HAT, PHH, HH FOOT, FOOT HAT]
+  open-hat: [HH OPEN, HH OPN, HH O, OPEN HAT, OP HAT, OHH, HAT OPEN]
+  tom-high: [TOM H, TOM HI, TOM HIGH, HIGH TOM, HI TOM, TOM 1, HT]
+  tom-mid: [TOM M, TOM MID, MID TOM, TOM 2, MT]
+  tom-low: [TOM L, TOM LO, TOM LOW, LOW TOM, FLOOR TOM, FLOOR, TOM 3, LT, FT]
+  tom: [TOM, TOMS]
+  crash: [CRASH, CRSH, CYMBAL, CYM, CR]
+  china: [CHINA]
+  splash: [SPLASH]
+  ride: [RIDE, RD]
+  ride-bell: [RIDE BELL, BELL]
+  cowbell: [COWBELL, COW BELL, COW, CB]
+  tambourine: [TAMBOURINE, TAMB, TAMBO, TAMBORINE]
+  cabasa: [CABASA, SHAKER]
+  none: [SYNTH TOM, SYN TOM, PERC, FX, SFX, SYNTH, NOISE, ZAP, EMPTY]
