@@ -3,14 +3,7 @@ from pathlib import Path
 import mido
 import pytest
 
-from groom.fixtures import FIXTURES, FixtureLoop, write_fixture_library
-
-
-@pytest.fixture(scope="module")
-def library(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    root = tmp_path_factory.mktemp("library")
-    write_fixture_library(root)
-    return root
+from groom.fixtures import DEMOS, FIXTURES, FixtureLoop, loop_beats
 
 
 def _messages(mid: mido.MidiFile) -> list[mido.Message]:
@@ -24,14 +17,12 @@ def test_fixture_matches_description(library: Path, loop: FixtureLoop) -> None:
 
     assert mid.type == loop.midi_type
     assert mid.ticks_per_beat == loop.ppq
+    assert [(m.numerator, m.denominator) for m in msgs if m.type == "time_signature"] == [
+        loop.meter
+    ]
 
-    sigs = [(m.numerator, m.denominator) for m in msgs if m.type == "time_signature"]
-    assert sigs == [loop.written_meter]
-
-    tempos = [m for m in msgs if m.type == "set_tempo"]
-    assert bool(tempos) == loop.tempo_event
-    if tempos:
-        assert round(mido.tempo2bpm(tempos[0].tempo)) == loop.bpm
+    tempos = [round(mido.tempo2bpm(m.tempo)) for m in msgs if m.type == "set_tempo"]
+    assert tempos == ([round(loop.file_bpm)] if loop.file_bpm else [])
 
     notes = [m for m in msgs if m.type == "note_on" and m.velocity > 0]
     assert notes, "fixture has no notes"
@@ -39,18 +30,20 @@ def test_fixture_matches_description(library: Path, loop: FixtureLoop) -> None:
 
 
 @pytest.mark.parametrize("loop", FIXTURES, ids=lambda f: f.rel_path)
-def test_fixture_ends_short_of_whole_bars(library: Path, loop: FixtureLoop) -> None:
+def test_fixture_track_length(library: Path, loop: FixtureLoop) -> None:
     mid = mido.MidiFile(library / loop.rel_path)
-    length_ticks = max(sum(m.time for m in track) for track in mid.tracks)
-    num, den = loop.meter
-    whole_bars = loop.bars * num * 4 / den * loop.ppq
-    assert length_ticks == pytest.approx(whole_bars - loop.short_by * loop.ppq)
+    length = max(sum(m.time for m in track) for track in mid.tracks) / loop.ppq
+    expected = loop.eot_beats or loop_beats(loop) - loop.short_by
+    assert length == pytest.approx(expected)
+
+
+def test_demos_are_written(library: Path) -> None:
+    for demo in DEMOS:
+        assert (library / demo.rel_path).stat().st_size > 10_000
 
 
 def test_every_naming_scheme_is_covered() -> None:
-    packs = {f.pack for f in FIXTURES}
-    assert len(packs) == 8
-    assert any(f.kind == "fill" for f in FIXTURES)
-    assert any(f.file_meter and f.file_meter != f.meter for f in FIXTURES)
+    assert len({f.pack for f in FIXTURES}) == 8
+    assert {f.bpm_check for f in FIXTURES} == {"confirmed", "unverified", "audio-only", "unknown"}
+    assert any(f.file_bpm and f.file_bpm != f.bpm for f in FIXTURES), "a wrong MIDI tempo"
     assert {f.ppq for f in FIXTURES} == {96, 15360}
-    assert any(f.bpm is None for f in FIXTURES)

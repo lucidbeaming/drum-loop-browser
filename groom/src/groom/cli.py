@@ -1,5 +1,8 @@
 """Command-line entry point: ``groom <command>``."""
 
+import json
+import sqlite3
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -7,7 +10,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from groom import __version__
+from groom import __version__, pipeline
 from groom.fixtures import write_fixture_library
 from groom.paths import project_paths
 
@@ -48,3 +51,78 @@ def fixtures(
         raise typer.BadParameter(f"{out} is not empty", param_hint="OUT_DIR")
     loops = write_fixture_library(out)
     console.print(f"wrote {len(loops)} fixture loops to {out}")
+
+
+@app.command()
+def run(
+    audio: Annotated[
+        bool, typer.Option(help="Check tempos against the WAV demos (cached after the first run).")
+    ] = True,
+) -> None:
+    """Groom the library into data/: normalised MIDI, catalogue.sqlite and reports."""
+    p = project_paths()
+    if not p.library.is_dir():
+        raise typer.BadParameter(f"library not found: {p.library}")
+    started = time.perf_counter()
+    with console.status("Grooming the library…"):
+        result = pipeline.run(p, audio=audio)
+    _print_coverage(result.coverage())
+    console.print(
+        f"{len(result.loops)} loops ({len(result.scan.loops)} files) groomed into {p.data} "
+        f"in {time.perf_counter() - started:.1f}s"
+    )
+    if result.scan.unknown_packs:
+        console.print(f"[yellow]Packs with no rules (skipped):[/] {result.scan.unknown_packs}")
+    if result.scan.unmatched_demos:
+        console.print(f"[yellow]{len(result.scan.unmatched_demos)} demos matched no loops[/]")
+    console.print(f"Reports: {p.reports}")
+
+
+@app.command()
+def report() -> None:
+    """Coverage summary from the last run's catalogue."""
+    db = project_paths().data / "catalogue.sqlite"
+    if not db.exists():
+        raise typer.BadParameter("no catalogue yet; run `groom run` first")
+    con = sqlite3.connect(db)
+    rows = con.execute(
+        "SELECT pack_id, count(*), sum(bpm IS NOT NULL), "
+        + ", ".join(f"sum(bpm_check = '{c}')" for c in pipeline.BPM_CHECKS)
+        + ", sum(meter_source IN ('folder', 'filename')), sum(status = 'review') "
+        "FROM loops JOIN groups USING (group_id) GROUP BY pack_id ORDER BY pack_id"
+    ).fetchall()
+    keys = ["pack", "loops", "bpm_known", *pipeline.BPM_CHECKS, "meter_from_names", "review"]
+    _print_coverage([dict(zip(keys, r, strict=True)) for r in rows])
+
+
+@app.command()
+def inspect(ref: Annotated[str, typer.Argument(help="Loop ID, or part of a source path.")]) -> None:
+    """Everything the catalogue knows about one loop."""
+    con = sqlite3.connect(project_paths().data / "catalogue.sqlite")
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT * FROM loops WHERE loop_id = ? OR src_rel_path LIKE ? LIMIT 5", (ref, f"%{ref}%")
+    ).fetchall()
+    if not rows:
+        raise typer.BadParameter(f"no loop matches {ref!r}")
+    for row in rows:
+        table = Table("Field", "Value", show_header=False)
+        for k in row.keys():  # noqa: SIM118 (sqlite3.Row has no __iter__ over keys)
+            value = row[k]
+            if k in ("bpm_candidates", "issues", "remarks", "also_at"):
+                value = json.dumps(json.loads(value), indent=1) if value != "[]" else "—"
+            table.add_row(k, str(value))
+        console.print(table)
+
+
+def _print_coverage(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        return
+    table = Table(*rows[0].keys())
+    totals = {k: 0 for k in rows[0] if k != "pack"}
+    for r in rows:
+        table.add_row(*(str(v) for v in r.values()))
+        for k in totals:
+            totals[k] += int(r[k])  # type: ignore[call-overload]
+    table.add_row("TOTAL", *(str(v) for v in totals.values()), style="bold")
+    console.print(table)

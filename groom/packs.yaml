@@ -1,0 +1,100 @@
+# Per-pack naming rules for the loop library (patterns only, no library content).
+#
+# Each pack (top-level folder) has regexes with named groups:
+#   group:  matched against the group folder, relative to the pack (e.g. "MIDI Loops/Up Funk - 8 Bars")
+#   file:   matched against the MIDI file name without ".mid"
+#   preview.pattern: matched against each WAV demo name without ".wav"
+# Recognised group names: bpm, num, den, meter (number words, e.g. "SevenEight"), bars, kind,
+# style, key, variant, song, artist, feel.
+#
+# preview.scope says what one demo covers: a single "file" or a whole "group". The demo's `key`
+# is fuzzy-matched against the field named by preview.match_on (from the group or file fields).
+# defaults fill in fields that no regex provides.
+
+packs:
+  ClassicBeats_MIDILoops:
+    title: Classic Beats
+    group: '^MIDI Loops$'
+    file: '^(?P<bpm>\d+)_(?P<song>[^_]+?)(?:_(?P<artist>.+?))?(?P<variant>\d+)?$'
+    preview: {pattern: '^(?P<bpm>\d+)_(?P<key>[^_]+)_', scope: file, match_on: song}
+
+  DrumaticBeats_MIDIDrumLoops:
+    title: Drumatic Beats
+    group: '^(?P<bpm>\d+) (?P<num>\d+):(?P<den>\d+) (?P<style>.+)$'
+    file: '^(?P<key>[A-Za-z]+)_\d+_\d+_(?P<kind>Grv|Brk|Fill|Crsh)_(?P<variant>\d+)$'
+    preview: {pattern: '^(?P<key>[A-Za-z]+?)(?:\d+:\d+)?_MIDI_Demo$', scope: group, match_on: key}
+
+  EpicDrums1_MIDILoops:
+    title: Epic Drums 1
+    group: '^MIDI Loops/(?P<style>[^/]+)$'
+    file: '^(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^EpicDrums_(?P<key>.+?)\d?_(?P<bpm>\d+)bpm$', scope: group, match_on: style}
+
+  EpicDrums2_MIDILoops:
+    title: Epic Drums 2
+    group: '^MIDI Loops/(?P<style>[^/]+)$'
+    file: '^(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^EpicDrums (?P<key>.+?)\d? (?P<bpm>\d+)bpm$', scope: group, match_on: style}
+
+  FillsUnlimited_MIDILoops:
+    title: Fills Unlimited
+    group: '^(?P<feel>Swung|Straight) Fills/(?P<bars>\d+) Bar Fills$'
+    file: '^Fill - (?P<key>.+)$'
+    defaults: {kind: fill}
+    preview: {pattern: '^Fills Unlimited - (?P<key>.+)$', scope: file, match_on: key}
+
+  FlippedDrums1_MIDILoops:
+    title: Flipped Drums 1
+    group: '^MIDI Loops/(?P<style>[^/]+)$'
+    file: '^(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^FlippedDrums (?P<key>.+) (?P<bpm>\d+)bpm$', scope: group, match_on: style}
+
+  LinearDrums_MIDILoops:
+    title: Linear Drums 1
+    group: '^(?P<bpm>\d+)_(?P<style>.+)$'
+    file: '^Linear_(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^Linear_(?P<key>.+)_MIDI_(?P<bpm>\d+)$', scope: group, match_on: key}
+
+  LinearDrums2_MIDILoops:
+    title: Linear Drums 2
+    group: '^(?P<bpm>\d+)_(?P<style>.+)$'
+    file: '^(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^(?P<bpm>\d+)_(?P<key>.+)_MIDI_Loops$', scope: group, match_on: style}
+
+  LinearDrums3_MIDILoops:
+    title: Linear Drums 3
+    group: '^(?P<bpm>\d+)_(?P<style>.+)$'
+    file: '^(?P<key>.+)_(?P<variant>\d+)$'
+    preview: {pattern: '^(?P<key>.+) MIDI Loops$', scope: group, match_on: style}
+
+  LongLoops_MIDILoops: &long_loops
+    title: Long Loops 1
+    group: '^MIDI Loops/(?P<style>.+) - (?P<bars>\d+) Bars$'
+    file: '^(?P<key>.+?)_\d+Bars?_(?P<variant>\d+)$'
+    preview:
+      pattern: '^Long [Ll]oops(?: Vol \d)? - (?P<key>.+?)(?: \d)? - (?P<bars>\d+) Bars$'
+      scope: group
+      match_on: style
+  LongLoops2_MIDILoops: {<<: *long_loops, title: Long Loops 2}
+  LongLoops3_MIDILoops: {<<: *long_loops, title: Long Loops 3}
+  LongLoops4_MIDILoops: {<<: *long_loops, title: Long Loops 4}
+  LongLoops5_MIDILoops: {<<: *long_loops, title: Long Loops 5}
+  LongLoops6_MIDILoops: {<<: *long_loops, title: Long Loops 6}
+
+  OddMeter_DrumLoops_MIDI:
+    title: Odd Meter 1
+    group: '^(?P<num>\d+):(?P<den>\d+)_(?P<style>.+)$'
+    file: '^(?P<meter>[A-Za-z]+?)_(?P<kind>Grv|Brk|Fill|Crsh)_?(?P<variant>\d+)$'
+    preview: {pattern: '^[A-Za-z]+_(?P<key>[A-Za-z]+)_MIDI_Demo$', scope: group, match_on: style}
+
+  OddMeter_DrumLoops2_MIDI:
+    title: Odd Meter 2
+    group: '^Loops/(?P<meter>[A-Za-z]+)$'
+    file: '^[A-Za-z]+_Odd_(?P<variant>\d+)$'
+    preview: {pattern: '^(?P<key>.+?) - Odd Meter(?: MIDI)? Drums$', scope: group, match_on: meter}
+
+  OddMeter_DrumLoops3_MIDI:
+    title: Odd Meter 3
+    group: '^Loops/(?P<meter>[A-Za-z]+)_Drums$'
+    file: '^[A-Za-z]+_OddMeter_(?P<variant>\d+)$'
+    preview: {pattern: '^Odd Meter Vol3 (?P<key>.+) (?P<bpm>\d+)bpm$', scope: group, match_on: meter}
