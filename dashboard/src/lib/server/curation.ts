@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Collection, FixField, LoopCuration } from '#lib/catalogue.ts';
+import type { Arrangement, ArrangementSummary } from '#lib/sequencer/arrangement.ts';
 import { emptyCuration } from '#lib/curation.ts';
 import { dataDir } from './config.ts';
 import SCHEMA from './curation.sql?raw';
@@ -180,4 +181,39 @@ export function setCollectionItems(id: number, loopIds: string[]): void {
 		const insert = con.prepare('INSERT INTO collection_items VALUES (?, ?, ?)');
 		[...new Set(loopIds)].forEach((loopId, i) => insert.run(id, loopId, i));
 	});
+}
+
+export function listArrangements(): ArrangementSummary[] {
+	return db()
+		.prepare(
+			`SELECT arrangement_id AS id, name, bpm, updated_at AS updatedAt FROM arrangements
+			ORDER BY updated_at DESC`
+		)
+		.all() as unknown as ArrangementSummary[];
+}
+
+export function getArrangement(id: number): Arrangement | undefined {
+	const row = db().prepare('SELECT json FROM arrangements WHERE arrangement_id = ?').get(id);
+	return row ? (JSON.parse(String(row.json)) as Arrangement) : undefined;
+}
+
+export function createArrangement(a: Arrangement): number {
+	const r = db()
+		.prepare('INSERT INTO arrangements (name, bpm, json, updated_at) VALUES (?, ?, ?, ?)')
+		.run(a.name, a.bpm, JSON.stringify(a), new Date().toISOString());
+	return Number(r.lastInsertRowid);
+}
+
+/** Replace a saved arrangement; false if there is none with that ID. */
+export function updateArrangement(id: number, a: Arrangement): boolean {
+	const r = db()
+		.prepare(
+			'UPDATE arrangements SET name = ?, bpm = ?, json = ?, updated_at = ? WHERE arrangement_id = ?'
+		)
+		.run(a.name, a.bpm, JSON.stringify(a), new Date().toISOString(), id);
+	return Number(r.changes) > 0;
+}
+
+export function deleteArrangement(id: number): void {
+	db().prepare('DELETE FROM arrangements WHERE arrangement_id = ?').run(id);
 }

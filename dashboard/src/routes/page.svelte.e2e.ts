@@ -33,10 +33,10 @@ test('finds a loop by pack, search and filters', async ({ page }) => {
 
 	await page.getByRole('button', { name: 'Clear filters' }).click();
 	await page.getByRole('button', { name: 'All loops' }).click();
-	await page.getByLabel('Meter').selectOption('odd');
+	await page.getByRole('search').getByLabel('Meter').selectOption('odd');
 	await expect(count(page)).toHaveText(`4 of ${TOTAL} loops`);
 
-	await page.getByLabel('Meter').selectOption('any');
+	await page.getByRole('search').getByLabel('Meter').selectOption('any');
 	await page.getByLabel('Minimum BPM').fill('110');
 	await page.getByLabel('Maximum BPM').fill('130');
 	await expect(count(page)).toHaveText(`6 of ${TOTAL} loops`);
@@ -267,5 +267,71 @@ test.describe.serial('Curation', () => {
 		const grit = list.loops.find((r: { title: string }) => r.title === 'Linear Grit 12');
 		expect(grit.autoTags).not.toContain('dusty-kit'); // user tags are kept apart...
 		expect(grit.tags).toContain('dusty-kit'); // ...and applied on top
+	});
+});
+
+test.describe.serial('Sequencer', () => {
+	const seqPanel = (page: Page) => page.getByRole('region', { name: 'Sequencer' });
+	const clips = (page: Page, lane: number) =>
+		seqPanel(page)
+			.getByRole('list', { name: `Lane ${lane}` })
+			.getByRole('button');
+	const exportsDir = path.resolve(import.meta.dirname, '../../.fixtures/exports');
+
+	test('builds an arrangement with the keyboard', async ({ page }) => {
+		await open(page);
+		for (const title of [/Linear Grit 12/, /Angles 7 8 Fill 1/]) {
+			await selectRow(page, title);
+			await rowButtons(page).filter({ hasText: title }).focus();
+			await page.keyboard.press('a');
+		}
+		await expect(clips(page, 1)).toHaveCount(2);
+		await expect(clips(page, 1).first()).toHaveAccessibleName(
+			'Linear Grit 12, bars 1 to 2, 1 time'
+		);
+		// a 7/8 loop in a 4/4 arrangement is marked, and takes whole bars
+		await expect(clips(page, 1).nth(1)).toHaveAccessibleName(
+			'Angles 7 8 Fill 1, bars 3 to 4, 1 time, 7/8 in a 4/4 arrangement'
+		);
+
+		await clips(page, 1).first().focus();
+		for (let i = 0; i < 3; i++) await page.keyboard.press(']');
+		await expect(clips(page, 1).first()).toHaveAccessibleName(
+			'Linear Grit 12, bars 1 to 8, 4 times'
+		);
+		// the fill moved along to make room
+		await expect(clips(page, 1).nth(1)).toHaveAccessibleName(/^Angles 7 8 Fill 1, bars 9 to 10/);
+		await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+d`);
+		await expect(clips(page, 1)).toHaveCount(3);
+		await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+z`);
+		await expect(clips(page, 1)).toHaveCount(2);
+		await expect(seqPanel(page).getByText('10 bars')).toBeVisible();
+		await expect(seqPanel(page).getByText('All changes saved')).toBeVisible();
+	});
+
+	test('drags a loop from the list onto a lane', async ({ page }) => {
+		await open(page);
+		await expect(clips(page, 1)).toHaveCount(2); // reopened after the reload
+		await seqPanel(page).getByRole('button', { name: 'Add lane' }).click();
+		const lane2 = seqPanel(page).getByRole('list', { name: 'Lane 2' });
+		await page
+			.getByRole('row', { name: /Heavy Test 05/ })
+			.dragTo(lane2, { targetPosition: { x: 36 * 8 + 10, y: 20 } });
+		await expect(clips(page, 2)).toHaveAccessibleName(/^Heavy Test 05, bars 9 to 10/);
+		await expect(seqPanel(page).getByText('All changes saved')).toBeVisible();
+	});
+
+	test('saves the arrangement as one Type 1 MIDI file', async ({ page }) => {
+		await open(page);
+		await expect(clips(page, 2)).toHaveCount(1);
+		await seqPanel(page).getByLabel('Arrangement name').fill('Verse');
+		await seqPanel(page).getByLabel('Arrangement name').press('Enter');
+		await seqPanel(page).getByRole('button', { name: 'Save .mid' }).click();
+		await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toContainText(
+			'Verse_100bpm_4-4_10bars.mid'
+		);
+		const bytes = await readFile(path.join(exportsDir, 'Verse_100bpm_4-4_10bars.mid'));
+		const view = new DataView(bytes.buffer, bytes.byteOffset);
+		expect([view.getUint16(8), view.getUint16(10)]).toEqual([1, 3]); // Type 1: tempo + 2 lanes
 	});
 });

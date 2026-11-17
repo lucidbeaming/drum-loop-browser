@@ -23,6 +23,9 @@
 		onselect: (id: string) => void;
 		collections: Collection[];
 		actions: CurationActions;
+		/** Add the loop to the sequencer's active lane (numbered from 1). */
+		onappend: (id: string) => void;
+		activeLane: number;
 	}
 
 	let {
@@ -35,7 +38,9 @@
 		ontoggle,
 		onselect,
 		collections,
-		actions
+		actions,
+		onappend,
+		activeLane
 	}: Props = $props();
 
 	let fixOpen = $state(false);
@@ -68,9 +73,14 @@
 	{#if loop}
 		<header>
 			<h2 id="inspector-title">{loop.title}</h2>
-			<button type="button" class="play" onclick={ontoggle}>
-				{playing ? 'Stop' : 'Play'}
-			</button>
+			<div class="head-buttons">
+				<button type="button" class="add" onclick={() => onappend(loop.id)}>
+					Add to lane {activeLane + 1}
+				</button>
+				<button type="button" class="play" onclick={ontoggle}>
+					{playing ? 'Stop' : 'Play'}
+				</button>
+			</div>
 		</header>
 
 		<dl>
@@ -220,6 +230,19 @@
 		margin: 1rem 0 0.375rem;
 		font-size: 0.8125rem;
 		color: var(--muted);
+	}
+	.head-buttons {
+		display: flex;
+		flex: none;
+		gap: 0.375rem;
+	}
+	.add {
+		padding: 0.3rem 0.6rem;
+		border: 1px solid var(--accent);
+		border-radius: 4px;
+		background: var(--surface);
+		color: var(--accent);
+		cursor: pointer;
 	}
 	.play {
 		flex: none;

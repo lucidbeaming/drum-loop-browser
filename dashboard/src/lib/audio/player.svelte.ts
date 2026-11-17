@@ -7,6 +7,8 @@ import { midiOutputs, requestMidi, WebMidiOutput, type MidiPort } from './webmid
 const SOUNDFONT_URL = '/api/soundfont/lucidrum.sf2';
 const SETTINGS_KEY = 'drum-loop-browser.player';
 export const FLUIDSYNTH = 'fluidsynth';
+/** The scheduler clip ID of the sequencer's arrangement. */
+const ARRANGEMENT = 'arrangement';
 
 // lucidrum kits the selector leaves out or warns about (PLAN §6): SFX has no kick or snare;
 // CM-64/32L lacks a few notes the library uses.
@@ -60,6 +62,8 @@ export class Player {
 	cued = $state.raw<LoopDetail | null>(null);
 	/** The loop sounding now and where, updated every animation frame while playing. */
 	position = $state.raw<(Position & { loop: LoopDetail }) | undefined>(undefined);
+	/** Where the sequencer's arrangement is playing (ticks into what was played), if it is. */
+	arrangementTick = $state<number | undefined>(undefined);
 
 	private fluid?: FluidSynthOutput;
 	private starting?: Promise<boolean>;
@@ -73,6 +77,27 @@ export class Player {
 
 	get playing(): boolean {
 		return this.position !== undefined || this.cued !== null;
+	}
+
+	get playingArrangement(): boolean {
+		return this.arrangementTick !== undefined;
+	}
+
+	/** Play an arrangement, flattened to one loop, from the top (it repeats until stopped). */
+	async playArrangement(loop: Loop, bpm: number, barTicks: number): Promise<void> {
+		const scheduler = await this.ready();
+		if (!scheduler) return;
+		this.cued = null;
+		await scheduler.play({ id: ARRANGEMENT, loop, bpm, barTicks });
+		this.arrangementTick = 0;
+		this.watch();
+	}
+
+	/** Update the playing arrangement in place (after an edit), and its tempo. */
+	updateArrangement(loop: Loop, bpm: number): void {
+		if (!this.playingArrangement) return;
+		this.scheduler?.replaceLoop(ARRANGEMENT, loop);
+		this.scheduler?.setTempo(bpm);
 	}
 
 	/** The loop's own BPM when following loop tempos (and it has one), else the global tempo. */
@@ -101,6 +126,7 @@ export class Player {
 		this.scheduler?.stop();
 		this.cued = null;
 		this.position = undefined;
+		this.arrangementTick = undefined;
 	}
 
 	setTempo(bpm: number): void {
@@ -200,6 +226,7 @@ export class Player {
 			const pos = this.scheduler?.position();
 			const loop = pos && this.details.get(pos.clip.id);
 			this.position = pos && loop ? { ...pos, loop } : undefined;
+			this.arrangementTick = pos?.clip.id === ARRANGEMENT ? pos.tick : undefined;
 			if (pos || this.scheduler?.active) {
 				this.frame = requestAnimationFrame(step);
 			} else {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { meterLabel, type BpmCheck, type LoopRow, type Pack } from '#lib/catalogue.ts';
+	import { LOOP_DRAG_TYPE } from '#lib/sequencer/Sequencer.svelte';
 	import type { Sort, SortKey } from './filters';
 
 	interface Props {
@@ -23,6 +24,8 @@
 		onfavourite: (id: string) => void;
 		/** S: save the selected loop to the exports folder. */
 		onsave: (id: string) => void;
+		/** A: add the selected loop to the sequencer's active lane. */
+		onappend: (id: string) => void;
 	}
 
 	let {
@@ -38,7 +41,8 @@
 		marked,
 		onmark,
 		onfavourite,
-		onsave
+		onsave,
+		onappend
 	}: Props = $props();
 
 	const ROW_H = 30;
@@ -123,6 +127,7 @@
 			keys.f = () => onfavourite(id);
 			keys.x = () => onmark(id);
 			keys.s = () => onsave(id);
+			keys.a = () => onappend(id);
 		}
 		const action = keys[e.key];
 		if (!action || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -150,7 +155,8 @@
 	<table aria-rowcount={rows.length + 1} style:--row-h="{ROW_H}px">
 		<caption class="sr-only">
 			Loops: {rows.length} shown. Up and down arrows move through the list, Space plays or stops, Escape
-			stops, F toggles favourite, X marks a loop for a bulk action, S saves it as a MIDI file.
+			stops, F toggles favourite, X marks a loop for a bulk action, S saves it as a MIDI file, A adds
+			it to the sequencer. Rows can be dragged onto a sequencer lane.
 		</caption>
 		<thead>
 			<tr aria-rowindex={1}>
@@ -187,6 +193,12 @@
 					class:playing
 					onclick={() => onselect(row.id, false)}
 					ondblclick={() => onselect(row.id, true)}
+					draggable="true"
+					ondragstart={(e) => {
+						e.dataTransfer?.setData(LOOP_DRAG_TYPE, row.id);
+						e.dataTransfer?.setData('text/plain', row.title);
+						if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
+					}}
 				>
 					<td class="mark-col">
 						<input
