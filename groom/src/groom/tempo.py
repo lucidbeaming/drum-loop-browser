@@ -34,6 +34,8 @@ class DemoAnalysis:
     path: Path
     duration: float
     autocorr: Floats
+    envelope: Floats  # onset strength, one frame per HOP samples
+    key: str = ""  # content hash of the file
     _best: dict[float, float] = field(default_factory=dict, repr=False)
 
     def score(self, bpm: float, beats_per_bar: float) -> float:
@@ -75,11 +77,14 @@ def _file_hash(path: Path) -> str:
 
 
 def analyse_demo(path: Path, cache_dir: Path | None = None) -> DemoAnalysis:
-    """Onset-envelope autocorrelation of a demo, cached by file content hash."""
-    cache = cache_dir / f"{_file_hash(path)}.npz" if cache_dir else None
+    """Onset envelope of a demo and its autocorrelation, cached by file content hash."""
+    key = _file_hash(path)
+    cache = cache_dir / f"{key}.npz" if cache_dir else None
     if cache and cache.exists():
         data = np.load(cache)
-        return DemoAnalysis(path, float(data["duration"]), data["autocorr"])
+        if "envelope" in data:
+            duration = float(data["duration"])
+            return DemoAnalysis(path, duration, data["autocorr"], data["envelope"], key)
 
     duration = float(sf.info(str(path)).duration)
     y, _ = librosa.load(path, sr=SR, mono=True)
@@ -92,8 +97,8 @@ def analyse_demo(path: Path, cache_dir: Path | None = None) -> DemoAnalysis:
 
     if cache:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(cache, duration=duration, autocorr=autocorr)
-    return DemoAnalysis(path, duration, autocorr)
+        np.savez(cache, duration=duration, autocorr=autocorr, envelope=env)
+    return DemoAnalysis(path, duration, autocorr, env, key)
 
 
 def duration_bpm(seconds: float, loop_beats: float, near: float, max_repeats: int = 8) -> float:

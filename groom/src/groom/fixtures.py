@@ -19,12 +19,12 @@ import numpy as np
 import numpy.typing as npt
 import soundfile as sf
 
-KICK, SNARE, CLOSED_HAT, OPEN_HAT, CRASH = 36, 38, 42, 46, 49
+KICK, SNARE, CLOSED_HAT, OPEN_HAT, CRASH, COWBELL = 36, 38, 42, 46, 49, 56
 TOMS = (50, 48, 47, 45, 43, 41)
 DEMO_SR = 22050
 
 Kind = Literal["groove", "fill"]
-BpmCheck = Literal["confirmed", "unverified", "conflict", "audio-only", "unknown"]
+BpmCheck = Literal["confirmed", "audio-matched", "unverified", "conflict", "audio-only", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,7 @@ class FixtureLoop:
     file_bpm: float | None = None  # set_tempo written in the file (may be wrong, like the library)
     short_by: float = 0.25  # beats short of whole bars where the last note ends
     eot_beats: float | None = None  # end-of-track position, if far past the notes
+    busy: bool = False  # add 16th-note kicks (to tell loops of one group apart by ear)
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ class FixtureDemo:
     rel_path: str
     loop: str  # rel_path of the fixture loop whose pattern the demo plays
     bpm: float  # tempo the demo is rendered at
-    repeats: int = 4
+    repeats: int = 4  # like the vendor's demos, it lasts exactly this many loop passes
 
 
 FIXTURES: tuple[FixtureLoop, ...] = (
@@ -69,9 +70,9 @@ FIXTURES: tuple[FixtureLoop, ...] = (
     FixtureLoop("MeterStyleFolder_DrumLoops_MIDI/9:8_Woods/NineEight_Grv_2.mid",
                 "MeterStyleFolder_DrumLoops_MIDI", 112, "confirmed", (9, 8), 2, "groove",
                 ppq=15360, midi_type=1, file_bpm=112, eot_beats=400),
-    # Meter as a word in the folder, no tempo anywhere; the demo gives an audio-only estimate
+    # Meter as a word in the folder, no tempo anywhere; the MIDI lines up with the demo
     FixtureLoop("MeterWordFolder_DrumLoops_MIDI/Loops/FiveFour/FiveFour_Odd_04.mid",
-                "MeterWordFolder_DrumLoops_MIDI", 120, "audio-only", (5, 4), 2, "groove"),
+                "MeterWordFolder_DrumLoops_MIDI", 120, "audio-matched", (5, 4), 2, "groove"),
     # Style + bar count in the folder, no tempo anywhere, no demo
     FixtureLoop("BarsFolder_MIDILoops/MIDI Loops/Test Groove - 8 Bars/TestGroove_8Bars_07.mid",
                 "BarsFolder_MIDILoops", None, "unknown", (4, 4), 8, "groove"),
@@ -83,6 +84,15 @@ FIXTURES: tuple[FixtureLoop, ...] = (
     # Tempo only in a demo file name; the demo's audio confirms it
     FixtureLoop("PreviewBpm_MIDILoops/MIDI Loops/HeavyTest/HeavyTest_05.mid",
                 "PreviewBpm_MIDILoops", 96, "confirmed", (4, 4), 2, "groove"),
+    # No tempo anywhere; each demo plays one loop of the group (preview tempo: per-loop). The
+    # loop the demo plays is audio-matched; its sibling takes the demo's tempo, unchecked
+    FixtureLoop("PerLoop_MIDILoops/MIDI Loops/Test Pocket - 4 Bars/TestPocket_4Bars_01.mid",
+                "PerLoop_MIDILoops", 125, "audio-matched", (4, 4), 4, "groove"),
+    FixtureLoop("PerLoop_MIDILoops/MIDI Loops/Test Pocket - 4 Bars/TestPocket_4Bars_02.mid",
+                "PerLoop_MIDILoops", 125, "unverified", (4, 4), 4, "groove", busy=True),
+    # A fill with a demo of its own and no tempo in any name
+    FixtureLoop("FileDemo_MIDILoops/Fills/Fill - Test Crash.mid",
+                "FileDemo_MIDILoops", 128, "audio-matched", (4, 4), 2, "fill"),
 )  # fmt: skip
 
 DEMOS: tuple[FixtureDemo, ...] = (
@@ -94,6 +104,10 @@ DEMOS: tuple[FixtureDemo, ...] = (
                 FIXTURES[5].rel_path, 120),
     FixtureDemo("PreviewBpm_MIDILoops/Demos/PreviewBpm HeavyTest 96bpm.wav",
                 FIXTURES[9].rel_path, 96),
+    FixtureDemo("PerLoop_MIDILoops/Demos/PerLoop - Test Pocket 1 - 4 Bars.wav",
+                FIXTURES[10].rel_path, 125, repeats=1),  # double time is off the grid
+    FixtureDemo("FileDemo_MIDILoops/Demos/FileDemo - Test Crash.wav",
+                FIXTURES[12].rel_path, 128),
 )  # fmt: skip
 
 FIXTURE_RULES = """\
@@ -127,13 +141,26 @@ packs:
     group: '^MIDI Loops/(?P<style>[^/]+)$'
     file: '^(?P<key>.+)_(?P<variant>\\d+)$'
     preview: {pattern: '^PreviewBpm (?P<key>.+) (?P<bpm>\\d+)bpm$', scope: group, match_on: style}
+  PerLoop_MIDILoops:
+    group: '^MIDI Loops/(?P<style>.+) - (?P<bars>\\d+) Bars$'
+    file: '^(?P<key>.+?)_\\d+Bars?_(?P<variant>\\d+)$'
+    preview:
+      pattern: '^PerLoop - (?P<key>.+?)(?: \\d)? - (?P<bars>\\d+) Bars$'
+      scope: group
+      match_on: style
+      tempo: per-loop
+  FileDemo_MIDILoops:
+    group: '^Fills$'
+    file: '^Fill - (?P<key>.+)$'
+    defaults: {kind: fill}
+    preview: {pattern: '^FileDemo - (?P<key>.+)$', scope: file, match_on: key}
 """
 
 
 def _pattern(loop: FixtureLoop) -> list[tuple[float, int, int]]:
     """Return (beat, note, velocity) hits for a simple generic beat or fill."""
     num, den = loop.meter
-    accent = zlib.crc32(loop.rel_path.encode()) % 16  # keeps every fixture's content distinct
+    accent = zlib.crc32(loop.rel_path.encode()) % 16
     unit = 4 / den  # beats per meter unit (quarter or eighth)
     hits: list[tuple[float, int, int]] = []
     for b in range(loop.bars):
@@ -149,11 +176,15 @@ def _pattern(loop: FixtureLoop) -> list[tuple[float, int, int]]:
                 hits.append((t, KICK, 110))
             if u == num // 2:
                 hits.append((t, SNARE, 105))
+            if loop.busy:
+                hits.append((t + unit / 4, KICK, 100))
         if b % 2 == 1 and not is_fill_bar:  # syncopated second bar, like a real two-bar groove
             hits.append((start + (num - 2.5) * unit, KICK, 95))
             hits.append((start + (num - 1) * unit, OPEN_HAT, 90))
         if b == 0:
             hits.append((start, CRASH, 100))
+            # a cowbell 16th placed per file, so no two fixtures play the same pattern
+            hits.append(((accent % int(num * unit * 4)) / 4, COWBELL, 60))
     return sorted(hits)
 
 
@@ -199,7 +230,7 @@ def render_demo(loop: FixtureLoop, bpm: float, repeats: int) -> npt.NDArray[np.f
     """A plain click-track rendering of the loop's pattern: decaying noise/sine bursts."""
     sec_per_beat = 60.0 / bpm
     length = loop_beats(loop) * sec_per_beat
-    audio = np.zeros(int((length * repeats + 1.0) * DEMO_SR))
+    audio = np.zeros(int((length * repeats + 1.0) * DEMO_SR))  # room for the last decay
     rng = np.random.default_rng(0)
     burst_len = int(0.08 * DEMO_SR)
     env = np.exp(-np.linspace(0, 8, burst_len))
@@ -209,6 +240,7 @@ def render_demo(loop: FixtureLoop, bpm: float, repeats: int) -> npt.NDArray[np.f
             start = int((r * length + beat * sec_per_beat) * DEMO_SR)
             tone = np.sin(2 * np.pi * 60 * t) if note == KICK else rng.uniform(-1, 1, burst_len)
             audio[start : start + burst_len] += tone * env * vel / 127
+    audio = audio[: round(length * repeats * DEMO_SR)]
     peak = max(1e-9, float(np.abs(audio).max()))
     return audio / peak * 0.8
 

@@ -2,10 +2,13 @@
 
 import hashlib
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
+from groom.align import DemoTempo
+from groom.features import Features
 from groom.midi import (
     LoopNotes,
     ParsedMidi,
@@ -19,12 +22,21 @@ from groom.midi import (
 )
 from groom.names import kind_from_token, meter_from_words, split_camel
 from groom.rules import PackRules, best_matches
+from groom.tags import Tag
 from groom.tempo import CONFIRM_RATIO, DemoAnalysis, duration_agrees, duration_bpm
 
 SKIP_SUFFIXES = {".txt", ".webloc"}
 SOURCE_PRIORITY = ("curation", "filename", "folder", "preview", "midi")
-CONFIDENCE = {"confirmed": 0.95, "unverified": 0.6, "audio-only": 0.4, "conflict": 0.3}
+CONFIDENCE = {
+    "confirmed": 0.95,
+    "audio-matched": 0.85,
+    "unverified": 0.6,
+    "audio-only": 0.4,
+    "conflict": 0.3,
+}
 SAME_BPM = 1.0
+LOOP_MARGIN = 0.05  # alignment lead a demo's best loop needs to count as the loop it plays
+SIBLING_DEMO = "sibling-demo"  # bpm_source of a tempo taken from another loop's demo
 
 
 @dataclass
@@ -33,7 +45,9 @@ class Demo:
     pack: str
     fields: dict[str, str]
     scope: str
+    tempo: str = "shared"  # see rules.PreviewRule
     targets: list[str] = field(default_factory=list)  # group ids or source rel paths
+    loops: list["Loop"] = field(default_factory=list, repr=False)  # every loop it may play
     analysis: DemoAnalysis | None = None
 
     @property
@@ -68,7 +82,7 @@ class Candidate:
     bpm: float
     source: str
     support: float | None = None
-    method: str | None = None  # "periodicity" or "duration"
+    method: str | None = None  # "periodicity", "duration" or "alignment"
 
 
 @dataclass
@@ -94,6 +108,9 @@ class Loop:
     fitted: LoopNotes | None = None
     loop_id: str = ""
     also_at: list[str] = field(default_factory=list)
+    features: Features | None = None
+    tags: list[Tag] = field(default_factory=list)
+    similar: list[tuple[str, float]] = field(default_factory=list)  # (loop_id, score)
 
     @property
     def stem(self) -> str:
@@ -156,7 +173,7 @@ def scan_library(library: Path, rules: dict[str, PackRules]) -> Scan:
             elif path.suffix.lower() == ".wav" and pack.preview:
                 fields = pack.preview_fields(path.stem) or {}
                 rel = str(path.relative_to(library))
-                demos.append(Demo(rel, pack.name, fields, pack.preview.scope))
+                demos.append(Demo(rel, pack.name, fields, pack.preview.scope, pack.preview.tempo))
     unmatched = _match_demos(rules, groups, loops, demos)
     return Scan(groups, loops, demos, unknown, unmatched)
 
@@ -205,12 +222,14 @@ def _match_demos(
                 groups[gid].demos.append(demo)
                 for lp in groups[gid].loops:
                     lp.demos.append(demo)
+                    demo.loops.append(lp)
         else:
             by_path = {lp.rel_path: lp for lp in loops if lp.group.pack == demo.pack}
             targets = {p: v for p, lp in by_path.items() if (v := lp.value(rule.match_on))}
             demo.targets = best_matches(key, targets)
             for p in demo.targets:
                 by_path[p].demos.append(demo)
+                demo.loops.append(by_path[p])
         if not demo.targets:
             unmatched.append(demo)
     return unmatched
@@ -325,6 +344,83 @@ def _audio_only(loop: Loop, analyses: list[tuple[Demo, DemoAnalysis]]) -> None:
         bpm = a.estimate(loop.beats_per_bar)
     if bpm is not None:
         loop.bpm, loop.bpm_source, loop.bpm_check = round(bpm), "audio", "audio-only"
+
+
+class Aligner(Protocol):
+    """Lines loops up with demos (see module align); the pipeline supplies a cached one."""
+
+    def tempo(self, demo: Demo, loops: list[Loop]) -> DemoTempo | None: ...
+
+    def score(self, demo: Demo, loop: Loop, bpm: float) -> float: ...
+
+
+def align_tempos(groups: Iterable[Group], aligner: Aligner) -> None:
+    """Settle tempos the names can't by lining the MIDI up with the demos.
+
+    Only loops whose tempo is in doubt (audio-only or conflict) are looked at, after
+    ``normalise``. A strong alignment (see module align) makes a loop with no named tempo
+    audio-matched, and confirms a conflicting loop if it agrees with the loop's best name.
+    """
+    for group in groups:
+        doubtful = [lp for lp in group.loops if lp.bpm_check in ("audio-only", "conflict")]
+        if not doubtful:
+            continue
+        group_demos = [(d, t) for d in group.demos if (t := aligner.tempo(d, d.loops))]
+        for lp in doubtful:
+            own = [(d, t) for d in lp.demos if d.scope == "file" and (t := aligner.tempo(d, [lp]))]
+            demos = own or group_demos
+            for _, t in demos:
+                _add_candidate(lp, Candidate(t.bpm, "audio", t.score, "alignment"))
+            strong = [(d, t) for d, t in demos if t.strong]
+            if lp.bpm_check == "conflict":
+                _confirm_by_alignment(lp, strong)
+            elif own or (strong and strong[0][0].tempo == "shared"):
+                _match_shared(lp, strong)
+            elif strong:
+                _match_per_loop(lp, strong, aligner)
+
+
+def _add_candidate(loop: Loop, c: Candidate) -> None:
+    loop.candidates = [
+        x for x in loop.candidates if not (x.source == "audio" and x.method == "periodicity")
+    ]
+    if not any(x.source == c.source and abs(x.bpm - c.bpm) < SAME_BPM for x in loop.candidates):
+        loop.candidates.append(c)
+
+
+def _set(loop: Loop, bpm: float, source: str, check: str) -> None:
+    loop.bpm, loop.bpm_source, loop.bpm_check = bpm, source, check
+
+
+def _confirm_by_alignment(loop: Loop, strong: list[tuple[Demo, DemoTempo]]) -> None:
+    named = min(
+        (c for c in loop.candidates if c.source != "audio"),
+        key=lambda c: (SOURCE_PRIORITY.index(c.source), c.bpm),
+    )
+    if any(abs(t.bpm - named.bpm) < SAME_BPM for _, t in strong):
+        named.support, named.method = 1.0, "alignment"
+        _set(loop, named.bpm, named.source, "confirmed")
+
+
+def _match_shared(loop: Loop, strong: list[tuple[Demo, DemoTempo]]) -> None:
+    """The loop's own demo, or a demo of a group whose loops share a tempo."""
+    tempos = {t.bpm for _, t in strong}
+    if len(tempos) == 1:
+        _set(loop, tempos.pop(), "audio", "audio-matched")
+
+
+def _match_per_loop(loop: Loop, strong: list[tuple[Demo, DemoTempo]], aligner: Aligner) -> None:
+    """Each demo plays one loop of the group. The loop a demo clearly plays is audio-matched; the
+    others take the tempo of the demo they line up with best, as an unchecked suggestion."""
+    for demo, t in strong:
+        if demo.loops[t.loop] is loop and t.loop_margin >= LOOP_MARGIN:
+            _set(loop, t.bpm, "audio", "audio-matched")
+            return
+    demo, t = max(strong, key=lambda dt: aligner.score(dt[0], loop, dt[1].bpm))
+    _set(loop, t.bpm, SIBLING_DEMO, "unverified")
+    loop.remarks.append(
+        f"tempo from the demo {Path(demo.rel_path).name}, which plays another loop of this group"
+    )
 
 
 def normalise(loop: Loop) -> None:

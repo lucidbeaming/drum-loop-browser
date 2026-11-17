@@ -27,6 +27,7 @@ function row(over: Partial<LoopRow>): LoopRow {
 		status: 'ok',
 		noteCount: 10,
 		path: 'A_Pack/Loop.mid',
+		tags: [],
 		...over
 	};
 }

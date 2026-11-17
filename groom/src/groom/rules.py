@@ -22,6 +22,9 @@ class PreviewRule:
     pattern: re.Pattern[str]
     scope: Literal["file", "group"]
     match_on: str
+    # "shared": a group's loops share one tempo, the demo's; "per-loop": each demo plays one
+    # loop of its group, and loops in a group may differ in tempo
+    tempo: Literal["shared", "per-loop"] = "shared"
 
 
 @dataclass(frozen=True)
@@ -55,7 +58,14 @@ def _present(d: dict[str, str | None]) -> Fields:
 def _pack(name: str, raw: dict[str, Any]) -> PackRules:
     prev = raw.get("preview")
     preview = (
-        PreviewRule(re.compile(prev["pattern"]), prev["scope"], prev["match_on"]) if prev else None
+        PreviewRule(
+            re.compile(prev["pattern"]),
+            prev["scope"],
+            prev["match_on"],
+            prev.get("tempo", "shared"),
+        )
+        if prev
+        else None
     )
     return PackRules(
         name=name,

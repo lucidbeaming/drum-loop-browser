@@ -4,7 +4,8 @@
 /** Every normalised loop is Type 0 MIDI at this resolution. */
 export const CATALOGUE_PPQ = 480;
 
-export type BpmCheck = 'confirmed' | 'unverified' | 'conflict' | 'audio-only' | 'unknown';
+export type BpmCheck =
+	'confirmed' | 'audio-matched' | 'unverified' | 'conflict' | 'audio-only' | 'unknown';
 
 export interface Pack {
 	id: string;
@@ -32,6 +33,8 @@ export interface LoopRow {
 	status: 'ok' | 'review';
 	noteCount: number;
 	path: string;
+	/** Style, feel and rhythm tags, e.g. "swung", "linear", "four-on-the-floor". */
+	tags: string[];
 }
 
 export interface BpmCandidate {
@@ -44,6 +47,13 @@ export interface BpmCandidate {
 /** A hit at CATALOGUE_PPQ: [tick, key, velocity, duration]. */
 export type NoteTuple = [number, number, number, number];
 
+/** A loop with a similar rhythm (same meter); score is a cosine similarity, 1 = identical. */
+export interface SimilarLoop {
+	id: string;
+	title: string;
+	score: number;
+}
+
 export interface LoopDetail extends LoopRow {
 	bpmSource: string;
 	bpmConfidence: number;
@@ -55,6 +65,7 @@ export interface LoopDetail extends LoopRow {
 	issues: string[];
 	remarks: string[];
 	demos: string[];
+	similar: SimilarLoop[];
 	notes: NoteTuple[];
 }
 

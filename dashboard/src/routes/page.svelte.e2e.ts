@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Runs against the fixture catalogue: 10 synthetic loops in 8 packs (see playwright.config.ts).
-const TOTAL = 10;
+// Runs against the fixture catalogue: 13 synthetic loops in 10 packs (see playwright.config.ts).
+const TOTAL = 13;
 
 async function open(page: Page) {
 	await page.goto('/');
@@ -36,10 +36,17 @@ test('finds a loop by pack, search and filters', async ({ page }) => {
 	await page.getByLabel('Meter').selectOption('any');
 	await page.getByLabel('Minimum BPM').fill('110');
 	await page.getByLabel('Maximum BPM').fill('130');
-	await expect(count(page)).toHaveText(`3 of ${TOTAL} loops`);
+	await expect(count(page)).toHaveText(`6 of ${TOTAL} loops`);
 
+	await page.getByRole('button', { name: 'Clear filters' }).click();
 	await page.getByRole('button', { name: /Needs review/ }).click();
-	await expect(count(page)).toHaveText(`1 of ${TOTAL} loops`);
+	await expect(count(page)).toHaveText(`3 of ${TOTAL} loops`); // no tempo anywhere
+});
+
+test('searches tags', async ({ page }) => {
+	await open(page);
+	await page.getByRole('searchbox').fill('odd-meter');
+	await expect(count(page)).toHaveText(`4 of ${TOTAL} loops`);
 });
 
 test('sorts by a column header', async ({ page }) => {
@@ -62,6 +69,13 @@ test('selecting a row shows its drum grid and details', async ({ page }) => {
 	await expect(inspector.getByText('Drum grid: 2 bars of 4/4')).toBeVisible();
 	await inspector.getByText('Hits by instrument').click();
 	await expect(inspector.getByRole('rowheader', { name: 'Kick' })).toBeVisible();
+	await expect(inspector.getByRole('listitem').filter({ hasText: 'grit' })).toBeVisible(); // tag
+
+	// a similar loop opens in the inspector
+	const similar = inspector.getByRole('list').last().getByRole('button').first();
+	const title = (await similar.textContent()) ?? '';
+	await similar.click();
+	await expect(inspector.getByRole('heading', { level: 2, name: title })).toBeVisible();
 });
 
 test('arrow keys move the selection and keep focus on it', async ({ page }) => {
@@ -91,7 +105,7 @@ test('the spike page still offers to start audio', async ({ page }) => {
 test.describe('API', () => {
 	test('lists loops and serves one with its notes and MIDI file', async ({ request }) => {
 		const list = await (await request.get('/api/loops')).json();
-		expect(list.meta.schemaVersion).toBe(1);
+		expect(list.meta.schemaVersion).toBe(2);
 		expect(list.loops).toHaveLength(TOTAL);
 
 		const id = list.loops[0].id;

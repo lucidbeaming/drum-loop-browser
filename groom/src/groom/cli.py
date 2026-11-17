@@ -13,6 +13,7 @@ from rich.table import Table
 from groom import __version__, pipeline
 from groom.fixtures import FIXTURE_RULES, write_fixture_library
 from groom.paths import project_paths
+from groom.render import fluidsynth
 from groom.rules import DEFAULT_RULES_PATH
 
 app = typer.Typer(help="Offline grooming of the MIDI drum loop library.", no_args_is_help=True)
@@ -70,14 +71,22 @@ def run(
     rules: Annotated[
         Path, typer.Option(help="Per-pack naming rules.", exists=True, dir_okay=False)
     ] = DEFAULT_RULES_PATH,
+    render: Annotated[
+        bool,
+        typer.Option(
+            help="Render every loop with the fluidsynth program and flag silent or clipping ones."
+        ),
+    ] = False,
 ) -> None:
     """Groom the library into data/: normalised MIDI, catalogue.sqlite and reports."""
     p = project_paths()
     if not p.library.is_dir():
         raise typer.BadParameter(f"library not found: {p.library}")
+    if render and fluidsynth() is None:
+        raise typer.BadParameter("--render needs the fluidsynth program (brew install fluid-synth)")
     started = time.perf_counter()
     with console.status("Grooming the library…"):
-        result = pipeline.run(p, rules_path=rules, audio=audio)
+        result = pipeline.run(p, rules_path=rules, audio=audio, render=render)
     _print_coverage(result.coverage())
     console.print(
         f"{len(result.loops)} loops ({len(result.scan.loops)} files) groomed into {p.data} "
@@ -124,6 +133,16 @@ def inspect(ref: Annotated[str, typer.Argument(help="Loop ID, or part of a sourc
             if k in ("bpm_candidates", "issues", "remarks", "also_at"):
                 value = json.dumps(json.loads(value), indent=1) if value != "[]" else "—"
             table.add_row(k, str(value))
+        tags = con.execute(
+            "SELECT tag, source FROM tags WHERE loop_id = ? ORDER BY tag", (row["loop_id"],)
+        ).fetchall()
+        table.add_row("tags", ", ".join(f"{t} ({s})" for t, s in tags) or "—")
+        similar = con.execute(
+            "SELECT title, score FROM similar JOIN loops ON loops.loop_id = other_id "
+            "WHERE similar.loop_id = ? ORDER BY rank LIMIT 5",
+            (row["loop_id"],),
+        ).fetchall()
+        table.add_row("similar", "\n".join(f"{t} ({s:.2f})" for t, s in similar) or "—")
         console.print(table)
 
 
