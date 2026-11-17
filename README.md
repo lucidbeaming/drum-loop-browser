@@ -95,6 +95,32 @@ A demo that clearly plays at a different whole tempo than a loop's name is not a
 
 `loop_id` is a hash of the normalised notes, so it survives renames and re-runs, and identical files become one loop.
 
+#### Kong kit remap
+
+Saved loops are standard GM. To play them on a Kong kit in Reason, whose pads aren't the GM drum map, remap a copy:
+
+```sh
+uv run groom kit from-screenshot "Kong kit.png" --name kong-default   # read the pads → data/kits/kong-default.yaml
+uv run groom kit show kong-default                                    # pads, roles and the GM → pad map
+uv run groom kit rebuild kong-default                                 # after editing roles in the YAML
+uv run groom remap "/Users/lucid/_Audio/drum-loops/Funk set" --kit kong-default   # → data/remapped/Funk set (kong-default)/
+```
+
+- **Screenshot:** crop it to the 4×4 pad grid. Pad 1 is bottom left and plays note 36; pad n plays 35 + n.
+- **Reading the pads:** text is read with macOS's built-in Vision framework, through a small Swift helper that groom builds once with the system `swiftc` (Xcode command-line tools) into `data/cache/bin`.
+  - Labels are matched to drum roles using [`groom/kit-labels.yaml`](groom/kit-labels.yaml), which you can extend.
+  - The number in a pad's corner (e.g. the hi-hats' shared `3`) is recorded as its group and doesn't decide the pad.
+  - Anything unrecognised is flagged in the *Check* column.
+- **GM → pad map:** each exact role gets its note first, and a second kick or snare pad gets GM's alternate (35, 40).
+  - GM's six toms fold onto the kit's tom pads, high to low.
+  - Crash 2, china and splash fold onto the crash; ride 2 and the ride bell onto the ride.
+  - Side stick goes to a rim pad or the second snare.
+  - The kit file says which notes are folded; edit `gm_map` there to override anything.
+- **Remapping:** `groom remap` reads the input folder (it never changes it) and writes the same files and subfolders to `data/remapped/<folder> (<kit>)/`, with `remap-report.csv` listing folded and unmapped notes per file.
+  - `--unmapped keep|drop|<pad>` says what happens to notes the kit has no pad for (default `keep`).
+  - `--channel` sets the output channel (default 10), and `--dry-run` only reports.
+  - Files with notes outside the GM drum range are refused unless `--force` is given; nothing is written until every file has been checked.
+
 ### dashboard
 
 `make dev`, then open <http://localhost:5173>. The dashboard reads `data/catalogue.sqlite` (run `groom run` first) and refuses to start against a catalogue with a different schema version.
