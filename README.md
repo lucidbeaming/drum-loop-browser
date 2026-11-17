@@ -1,3 +1,87 @@
 # drum-loop-browser
 
-Browse and preview MIDI drum loops.
+A local toolkit for browsing, previewing, curating and sketching with a personal library of MIDI drum loops, built for getting loops into Reason (Kong) and Reaper.
+
+It has two parts:
+
+| Component | What it does | Stack |
+|---|---|---|
+| [`groom/`](groom/) | Offline command-line app that analyses, normalises, tags and grooms the raw loop library into a clean catalogue | Python 3.13, uv, mido |
+| [`dashboard/`](dashboard/) | Local web app for browsing, previewing (FluidSynth), curating and simple whole-bar sequencing | SvelteKit, TypeScript, js-synthesizer |
+
+They share nothing except the git-ignored `data/` folder: groom writes the catalogue there, and the dashboard reads it.
+
+> **Status:** phase 0 (groundwork). The groom CLI, test fixtures, and a FluidSynth playback spike work. The catalogue and the loop browser come next.
+
+## Folder layout
+
+The repo expects these siblings, none of which are committed:
+
+```
+midi-drums/
+├── drum-loop-browser/   ← this repo
+│   └── data/            ← generated: catalogue, normalised MIDI, kits, remaps (git-ignored)
+├── patterns/            ← the loop library (read-only, licensed: never commit)
+└── sf2/                 ← SoundFonts, including lucidrum.sf2 (read-only)
+```
+
+Saved loops from the dashboard go to `/Users/lucid/_Audio/drum-loops`, where Reason and Reaper pick them up.
+
+| Variable | Default | Used by |
+|---|---|---|
+| `DRUM_LIBRARY_DIR` | `../patterns` | groom |
+| `DRUM_SOUNDFONT_DIR` | `../sf2` | groom, dashboard |
+| `DRUM_DATA_DIR` | `./data` | groom, dashboard |
+| `DRUM_EXPORT_DIR` | `/Users/lucid/_Audio/drum-loops` | dashboard |
+
+## Requirements
+
+- macOS
+- [uv](https://docs.astral.sh/uv/) (Python 3.13 is installed by uv as needed)
+- [nvm](https://github.com/nvm-sh/nvm) with **Node 24** (pinned in `.nvmrc`; it ships npm 11, which the dashboard needs because npm 10 fails to install its dependency tree)
+- FluidSynth from Homebrew (`brew install fluid-synth`), for groom's offline rendering in later phases
+
+## Getting started
+
+```sh
+nvm install    # first time only: installs the Node version from .nvmrc
+nvm use        # in each new shell
+make setup     # install both components and enable the pre-commit guard
+make test      # groom (pytest) + dashboard (vitest)
+make lint      # ruff, mypy, prettier, eslint, svelte-check
+make e2e       # Playwright smoke tests
+make dev       # dashboard at http://localhost:5173
+```
+
+### groom
+
+```sh
+cd groom
+uv run groom paths               # show the locations groom reads and writes
+uv run groom fixtures /tmp/fx    # write the synthetic test library
+```
+
+### dashboard
+
+`make dev`, then open <http://localhost:5173/spike>. The spike page loads `lucidrum.sf2` into FluidSynth and plays a hand-made test loop on MIDI channel 10, with kit and tempo controls and a level meter.
+
+## SoundFont
+
+Previews use `../sf2/lucidrum.sf2`. Its 12 kits were moved to General MIDI drum bank 128 with Roland GS program numbers by [`scripts/patch_lucidrum_banks.py`](scripts/patch_lucidrum_banks.py) (the original is kept as `lucidrum.orig.sf2`), so a file that sends no program change plays the Standard kit:
+
+| Program | Kit | Program | Kit |
+|---|---|---|---|
+| 0 | Standard | 25 | TR-808 |
+| 1 | mash | 32 | Jazz |
+| 2 | Warehouse Perc | 40 | Brush |
+| 8 | Room | 48 | Orchestral |
+| 16 | Power | 56 | SFX |
+| 24 | Electronic | 127 | CM-64/32L |
+
+## Keeping licensed content out of git
+
+The loop library's license forbids redistribution in any form, including edited or re-rendered versions. So:
+
+- `.gitignore` excludes `patterns/`, `data/`, MIDI, audio, SoundFonts and databases.
+- A pre-commit hook (`.githooks/pre-commit`, enabled by `make setup`) rejects those files even if they are force-added.
+- Tests and CI use only synthetic fixtures generated in code (`groom/src/groom/fixtures.py`, `dashboard/src/lib/audio/fixtureLoop.ts`).
