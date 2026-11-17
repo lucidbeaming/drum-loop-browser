@@ -5,14 +5,33 @@
 	import LoopTable from '#lib/browse/LoopTable.svelte';
 	import Sidebar from '#lib/browse/Sidebar.svelte';
 	import Transport from '#lib/browse/Transport.svelte';
-	import { emptyFilters, matches, searchText, sortRows, type Sort } from '#lib/browse/filters.ts';
-	import { meterLabel, type LoopDetail } from '#lib/catalogue.ts';
+	import ListTools from '#lib/browse/ListTools.svelte';
+	import type { CurationActions } from '#lib/browse/Curate.svelte';
+	import {
+		collections as collectionApi,
+		curation as curationApi,
+		exports as exportApi,
+		type SaveResult
+	} from '#lib/browse/api.ts';
+	import {
+		emptyFilters,
+		matches,
+		searchText,
+		sortRows,
+		type Sort,
+		type View
+	} from '#lib/browse/filters.ts';
+	import { meterLabel, type LoopDetail, type LoopRow } from '#lib/catalogue.ts';
+	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
 	const list = $derived(data.list);
-	const loops = $derived(list?.loops ?? []);
+	// Both are replaced locally as the user curates, until the page data changes.
+	let loops = $derived(list?.loops ?? []);
+	let collections = $derived(data.collections);
 	const packs = $derived(new Map((list?.packs ?? []).map((p) => [p.id, p])));
 	const texts = $derived(new Map(loops.map((r) => [r.id, searchText(r, packs)])));
 	const meters = $derived(
@@ -21,17 +40,35 @@
 		)
 	);
 	const kinds = $derived([...new Set(loops.map((r) => r.kind))].sort());
-	const reviewCount = $derived(loops.filter((r) => r.status === 'review').length);
+	const counts = $derived.by(() => {
+		const n: Record<View, number> = { all: 0, favourites: 0, review: 0, rejected: 0 };
+		for (const r of loops) {
+			if (r.status === 'rejected') {
+				n.rejected++;
+				continue;
+			}
+			n.all++;
+			if (r.curation.favourite) n.favourites++;
+			if (r.status === 'review') n.review++;
+		}
+		return n;
+	});
 
 	let filters = $state(emptyFilters());
 	let sort = $state<Sort>({ key: 'pack', dir: 'ascending' });
-	const rows = $derived(
-		sortRows(
-			loops.filter((r) => matches(r, texts.get(r.id) ?? '', filters)),
-			sort,
-			packs
-		)
-	);
+	const collection = $derived(collections.find((c) => c.id === filters.collection) ?? null);
+	const rows = $derived.by(() => {
+		const members = collection ? new Set(collection.loopIds) : undefined;
+		const shown = loops.filter((r) => matches(r, texts.get(r.id) ?? '', filters, members));
+		if (!collection) return sortRows(shown, sort, packs);
+		const order = new Map(collection.loopIds.map((id, i) => [id, i]));
+		return shown.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+	});
+
+	const marked = new SvelteSet<string>();
+	let withoutTempo = $state(false);
+	let message = $state('');
+	let saved = $state(false);
 
 	let selectedId = $state<string | null>(null);
 	let detail = $state.raw<LoopDetail | null>(null);
@@ -91,6 +128,104 @@
 		else if (detail) void player.play(detail);
 	}
 
+	/** Swap curated rows into the list. A loop that leaves the view (e.g. kept in the review
+	 * queue) hands the selection to the loop that took its place, to work through the queue. */
+	async function applyRows(changed: LoopRow[]) {
+		const byId = new Map(changed.map((r) => [r.id, r]));
+		const at = rows.findIndex((r) => r.id === selectedId);
+		loops = loops.map((r) => byId.get(r.id) ?? r);
+		for (const id of byId.keys()) if (id !== detail?.id) details.delete(id);
+		const mine = detail && byId.get(detail.id);
+		if (mine && detail) {
+			detail = { ...detail, ...mine };
+			details.set(detail.id, Promise.resolve(detail));
+		}
+		await tick();
+		if (at >= 0 && selectedId && !rows.some((r) => r.id === selectedId) && rows.length) {
+			void select(rows[Math.min(at, rows.length - 1)].id, false);
+		}
+	}
+
+	async function attempt(work: () => Promise<void>) {
+		try {
+			await work();
+		} catch (err) {
+			saved = false;
+			message = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	function reportSave(r: SaveResult) {
+		saved = r.files.length > 0;
+		const what = r.files.length === 1 ? r.files[0] : `${r.files.length} files to ${r.dir}`;
+		message = r.files.length ? `Saved ${what}` : 'Nothing saved';
+		if (r.skipped.length) {
+			message += `. Not saved until \`groom run\` applies their meter fix: ${r.skipped.join(', ')}`;
+		}
+	}
+
+	function replaceCollection(c: { id: number }, next?: (typeof collections)[number]) {
+		collections = next
+			? collections.map((x) => (x.id === c.id ? next : x))
+			: collections.filter((x) => x.id !== c.id);
+	}
+
+	const actions: CurationActions = {
+		patch: (ids, patch) => attempt(async () => applyRows(await curationApi.patch(ids, patch))),
+		tag: (ids, tag, op) => attempt(async () => applyRows(await curationApi.tag(ids, tag, op))),
+		fix: (ids, field, value) =>
+			attempt(async () => applyRows(await curationApi.fix(ids, field, value))),
+		setCollection: (id, loopIds) =>
+			attempt(async () => replaceCollection({ id }, await collectionApi.setLoops(id, loopIds))),
+		save: (ids) => attempt(async () => reportSave(await exportApi.loops(ids, !withoutTempo)))
+	};
+
+	async function createCollection(name: string): Promise<boolean> {
+		let ok = false;
+		await attempt(async () => {
+			const c = await collectionApi.create(name);
+			collections = [...collections, c].sort((a, b) => a.name.localeCompare(b.name));
+			message = `Created collection ${c.name}`;
+			saved = false;
+			ok = true;
+		});
+		return ok;
+	}
+
+	async function renameCollection(id: number, name: string): Promise<boolean> {
+		let ok = false;
+		await attempt(async () => {
+			replaceCollection({ id }, await collectionApi.rename(id, name));
+			ok = true;
+		});
+		return ok;
+	}
+
+	function toggleMark(id: string) {
+		if (marked.has(id)) marked.delete(id);
+		else marked.add(id);
+	}
+
+	function toggleFavourite(id: string) {
+		const row = loops.find((r) => r.id === id);
+		if (row) void actions.patch([id], { favourite: !row.curation.favourite });
+	}
+
+	$effect(() => {
+		try {
+			withoutTempo = localStorage.getItem('saveWithoutTempo') === '1';
+		} catch {
+			// storage unavailable: keep the default
+		}
+	});
+	$effect(() => {
+		try {
+			localStorage.setItem('saveWithoutTempo', withoutTempo ? '1' : '0');
+		} catch {
+			// storage unavailable
+		}
+	});
+
 	const announcement = $derived.by(() => {
 		const loop = player.cued;
 		return loop ? `Playing ${loop.title} at ${player.tempoFor(loop)} BPM` : '';
@@ -108,12 +243,36 @@
 	<div class="app">
 		<header class="top">
 			<h1>Drum Loop Browser</h1>
-			<FilterBar bind:filters {meters} {kinds} shown={rows.length} total={loops.length} />
+			<FilterBar
+				bind:filters
+				{meters}
+				{kinds}
+				shown={rows.length}
+				total={filters.view === 'rejected' ? counts.rejected : counts.all}
+			/>
 		</header>
 		<div class="side">
-			<Sidebar bind:filters packs={list.packs} total={loops.length} {reviewCount} />
+			<Sidebar bind:filters packs={list.packs} {collections} {counts} oncreate={createCollection} />
 		</div>
 		<main class="list" aria-label="Loops">
+			<ListTools
+				marked={[...marked]}
+				{collection}
+				{collections}
+				{selectedId}
+				{actions}
+				bind:withoutTempo
+				onunmark={() => marked.clear()}
+				onsavecollection={(id) =>
+					attempt(async () => reportSave(await exportApi.collection(id, !withoutTempo)))}
+				onrename={renameCollection}
+				ondelete={(id) =>
+					attempt(async () => {
+						await collectionApi.remove(id);
+						replaceCollection({ id });
+						filters = { ...filters, collection: null };
+					})}
+			/>
 			<LoopTable
 				{rows}
 				{packs}
@@ -124,6 +283,10 @@
 				ontoggle={toggle}
 				onstop={() => player.stop()}
 				auditioning={player.playing}
+				{marked}
+				onmark={toggleMark}
+				onfavourite={toggleFavourite}
+				onsave={(id) => actions.save([id])}
 			/>
 		</main>
 		<aside class="detail" aria-label="Selected loop">
@@ -136,6 +299,8 @@
 				tempo={detail ? player.tempoFor(detail) : undefined}
 				ontoggle={toggle}
 				onselect={(id) => void select(id, false)}
+				{collections}
+				{actions}
 			/>
 		</aside>
 		<footer class="bottom">
@@ -143,6 +308,15 @@
 		</footer>
 	</div>
 	<p class="sr-only" aria-live="polite">{announcement}</p>
+	<div class="toast" role="status">
+		{#if message}
+			<span>{message}</span>
+			{#if saved}
+				<button type="button" onclick={() => attempt(exportApi.reveal)}>Open exports folder</button>
+			{/if}
+			<button type="button" aria-label="Dismiss message" onclick={() => (message = '')}>×</button>
+		{/if}
+	</div>
 {/if}
 
 <style>
@@ -178,7 +352,43 @@
 	}
 	.list {
 		grid-area: list;
+		display: flex;
+		flex-direction: column;
 		min-height: 0;
+	}
+	.list > :global(.scroller) {
+		flex: 1;
+		min-height: 0;
+	}
+	.toast {
+		position: fixed;
+		left: 50%;
+		bottom: 4.5rem;
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		max-width: min(46rem, calc(100vw - 2rem));
+		transform: translateX(-50%);
+		font-size: 0.875rem;
+	}
+	.toast:not(:empty) {
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		background: var(--surface);
+		box-shadow: 0 2px 10px rgb(0 0 0 / 0.15);
+	}
+	.toast span {
+		overflow-wrap: anywhere;
+	}
+	.toast button {
+		flex: none;
+		padding: 0.15rem 0.5rem;
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		background: var(--surface);
+		cursor: pointer;
 	}
 	.detail {
 		grid-area: detail;

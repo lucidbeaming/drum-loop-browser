@@ -18,6 +18,7 @@ from groom.catalogue import (
     Loop,
     Scan,
     align_tempos,
+    apply_fixes,
     check_tempo,
     collect_candidates,
     dedupe,
@@ -25,6 +26,7 @@ from groom.catalogue import (
     resolve_structure,
     scan_library,
 )
+from groom.curation import Curation, load_curation
 from groom.features import analyse, neighbours, pattern_key
 from groom.midi import build_normalised
 from groom.paths import Paths
@@ -32,13 +34,14 @@ from groom.render import render_all
 from groom.rules import DEFAULT_RULES_PATH, load_rules
 from groom.soundfont import Kit, drum_kits
 from groom.store import write_catalogue
-from groom.tags import feature_tags, merge, rule_tags
+from groom.tags import Tag, feature_tags, merge, rule_tags
 from groom.tempo import DemoAnalysis, analyse_demo
 
 BPM_CHECKS = ("confirmed", "audio-matched", "unverified", "conflict", "audio-only", "unknown")
 PREVIEW_SOUNDFONT = "lucidrum.sf2"
 STANDARD_KIT = 0  # GS program of the kit a file with no program change plays
 NEAR_DUPLICATE = 0.995  # onset-vector cosine
+CURATION_DB = "curation.sqlite"  # written by the dashboard
 
 
 @dataclass
@@ -145,6 +148,7 @@ def run(
     paths: Paths, rules_path: Path = DEFAULT_RULES_PATH, audio: bool = True, render: bool = False
 ) -> RunResult:
     rules = load_rules(rules_path)
+    curation = load_curation(paths.data / CURATION_DB)
     scan = scan_library(paths.library, rules)
     cache_dir = paths.data / "cache" / "tempo"
     analyses: dict[str, DemoAnalysis | None] = {}
@@ -161,6 +165,7 @@ def run(
         collect_candidates(loop)
         check_tempo(loop, analyse)
         normalise(loop)
+        apply_fixes(loop, curation.fixes.get(loop.loop_id, {}), loop.loop_id in curation.rejected)
     if audio:
         aligner = CachedAligner(analyse, cache_dir / "alignments.json")
         groups = list(scan.groups.values())
@@ -170,7 +175,7 @@ def run(
     loops = dedupe(scan.loops)
     soundfont = paths.soundfonts / PREVIEW_SOUNDFONT
     kits = _load_kits(soundfont)
-    analyse_loops(loops, kits)
+    analyse_loops(loops, kits, curation)
 
     _write_normalised(paths.data / "normalised", loops)
     if render:
@@ -193,15 +198,23 @@ def _load_kits(path: Path) -> list[Kit]:
     return drum_kits(path) if path.is_file() else []
 
 
-def analyse_loops(loops: list[Loop], kits: list[Kit]) -> None:
-    """Features, tags, similar loops, near-duplicates and the audibility check."""
+def analyse_loops(loops: list[Loop], kits: list[Kit], curation: Curation | None = None) -> None:
+    """Features, tags (with the user's tag edits), similar loops, near-duplicates and the
+    audibility check."""
+    edits = curation.tags if curation else {}
     for lp in loops:
         assert lp.fitted is not None
         f = lp.features = analyse(lp.fitted.notes, lp.fitted.length, lp.meter)
-        lp.tags = merge(
-            rule_tags(lp.group.style, lp.value("feel")),
-            feature_tags(f, lp.meter, lp.kind, len(lp.fitted.notes)),
-        )
+        mine = edits.get(lp.loop_id, {})
+        lp.tags = [
+            t
+            for t in merge(
+                rule_tags(lp.group.style, lp.value("feel")),
+                feature_tags(f, lp.meter, lp.kind, len(lp.fitted.notes)),
+                [Tag(tag, "curation", 1.0) for tag, op in mine.items() if op == "add"],
+            )
+            if mine.get(t.tag) != "remove"
+        ]
 
     near = neighbours(
         [lp.loop_id for lp in loops],

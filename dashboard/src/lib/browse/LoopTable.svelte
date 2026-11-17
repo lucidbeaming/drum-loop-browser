@@ -16,6 +16,13 @@
 		onstop: () => void;
 		/** Whether moving the selection should audition the new row (true while playing). */
 		auditioning: boolean;
+		/** Loops marked for a bulk action (save, tag, add to a collection). */
+		marked: ReadonlySet<string>;
+		onmark: (id: string) => void;
+		/** F: toggle the selected loop's favourite. */
+		onfavourite: (id: string) => void;
+		/** S: save the selected loop to the exports folder. */
+		onsave: (id: string) => void;
 	}
 
 	let {
@@ -27,7 +34,11 @@
 		onselect,
 		ontoggle,
 		onstop,
-		auditioning
+		auditioning,
+		marked,
+		onmark,
+		onfavourite,
+		onsave
 	}: Props = $props();
 
 	const ROW_H = 30;
@@ -107,6 +118,12 @@
 			' ': ontoggle,
 			Escape: onstop
 		};
+		if (selectedId) {
+			const id = selectedId;
+			keys.f = () => onfavourite(id);
+			keys.x = () => onmark(id);
+			keys.s = () => onsave(id);
+		}
 		const action = keys[e.key];
 		if (!action || e.altKey || e.ctrlKey || e.metaKey) return;
 		e.preventDefault();
@@ -133,10 +150,11 @@
 	<table aria-rowcount={rows.length + 1} style:--row-h="{ROW_H}px">
 		<caption class="sr-only">
 			Loops: {rows.length} shown. Up and down arrows move through the list, Space plays or stops, Escape
-			stops.
+			stops, F toggles favourite, X marks a loop for a bulk action, S saves it as a MIDI file.
 		</caption>
 		<thead>
 			<tr aria-rowindex={1}>
+				<th scope="col" class="mark-col"><span class="sr-only">Marked</span></th>
 				{#each columns as col (col.key)}
 					<th
 						scope="col"
@@ -170,6 +188,16 @@
 					onclick={() => onselect(row.id, false)}
 					ondblclick={() => onselect(row.id, true)}
 				>
+					<td class="mark-col">
+						<input
+							type="checkbox"
+							tabindex="-1"
+							checked={marked.has(row.id)}
+							aria-label="Mark {row.title}"
+							onclick={(e) => e.stopPropagation()}
+							onchange={() => onmark(row.id)}
+						/>
+					</td>
 					<th scope="row">
 						<button
 							type="button"
@@ -183,8 +211,11 @@
 						>
 							<span class="state" aria-hidden="true">{playing ? '▶' : ''}</span>
 							<span class="title">{row.title}</span>
+							{#if row.curation.favourite}<span class="fave" title="Favourite">★</span><span
+									class="sr-only">(favourite)</span
+								>{/if}
 							{#if playing}<span class="sr-only">(playing)</span>{/if}
-							{#if row.status === 'review'}<span class="flag" title="Needs review">review</span
+							{#if row.status !== 'ok'}<span class="flag" title={row.status}>{row.status}</span
 								>{/if}
 						</button>
 					</th>
@@ -235,8 +266,20 @@
 		text-align: left;
 		padding: 0;
 	}
-	thead th:first-child {
+	thead th:nth-child(2) {
 		width: 34%;
+	}
+	.mark-col {
+		width: 1.75rem;
+		padding: 0 0 0 0.375rem;
+		text-align: center;
+	}
+	.mark-col input {
+		margin: 0;
+	}
+	.fave {
+		flex: none;
+		color: var(--playhead);
 	}
 	thead th.numeric {
 		width: 4.75rem;

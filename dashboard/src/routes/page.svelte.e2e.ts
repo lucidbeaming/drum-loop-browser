@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 // Runs against the fixture catalogue: 13 synthetic loops in 10 packs (see playwright.config.ts).
 const TOTAL = 13;
@@ -143,5 +146,126 @@ test.describe('API', () => {
 });
 
 function selectRow(page: Page, title: RegExp) {
-	return page.getByRole('row', { name: title }).getByRole('cell').first().click();
+	// the first cell holds the mark checkbox; the pack cell selects without side effects
+	return page.getByRole('row', { name: title }).getByRole('cell').nth(1).click();
 }
+
+// These change the shared curation database, so they run last and in order.
+test.describe.serial('Curation', () => {
+	const inspector = (page: Page) => page.getByRole('complementary', { name: 'Selected loop' });
+	const exportsDir = path.resolve(import.meta.dirname, '../../.fixtures/exports');
+
+	test('favourite, rate, tag and annotate a loop', async ({ page }) => {
+		await open(page);
+		await selectRow(page, /Linear Grit 12/);
+		const panel = inspector(page);
+		await panel.getByRole('button', { name: 'Favourite' }).click();
+		await expect(panel.getByRole('button', { name: 'Favourite' })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await panel.getByRole('radio', { name: '4' }).check();
+		await panel.getByPlaceholder('Add a tag').fill('Dusty Kit');
+		await panel.getByRole('button', { name: 'Add', exact: true }).first().click();
+		await expect(panel.getByRole('button', { name: 'Remove tag dusty-kit' })).toBeVisible();
+		await panel.getByLabel('Notes').fill('good for verses');
+		await panel.getByLabel('Notes').blur();
+
+		await page.reload();
+		await page.waitForLoadState('networkidle');
+		await page.getByRole('button', { name: /^Favourites/ }).click();
+		await expect(count(page)).toHaveText(`1 of ${TOTAL} loops`);
+		await selectRow(page, /Linear Grit 12/);
+		await expect(inspector(page).getByRole('radio', { name: '4' })).toBeChecked();
+		await expect(inspector(page).getByLabel('Notes')).toHaveValue('good for verses');
+		await page.getByRole('button', { name: /^Favourites/ }).click();
+		await page.getByRole('searchbox').fill('dusty-kit');
+		await expect(count(page)).toHaveText(`1 of ${TOTAL} loops`);
+	});
+
+	test('works through the review queue', async ({ page }) => {
+		await open(page);
+		await page.getByRole('button', { name: /Needs review/ }).click();
+		await expect(count(page)).toHaveText(`2 of ${TOTAL} loops`);
+		await selectRow(page, /In Three 4 Bars 02/);
+		await inspector(page).getByRole('button', { name: 'Keep' }).click();
+		await expect(count(page)).toHaveText(`1 of ${TOTAL} loops`);
+		// the next loop in the queue takes the selection
+		const panel = inspector(page);
+		await expect(panel.getByRole('heading', { name: 'Test Groove 8 Bars 07' })).toBeVisible();
+		await panel.getByRole('button', { name: 'Fix…' }).click();
+		await expect(panel.getByLabel('BPM')).toBeFocused();
+		await panel.getByLabel('BPM').fill('100');
+		await panel.getByRole('button', { name: 'Save fix' }).click();
+		await expect(count(page)).toHaveText(`0 of ${TOTAL} loops`);
+		await expect(panel.getByText(/BPM set to 100 \(applied .* next groom run\)/)).toBeVisible();
+	});
+
+	test('rejecting hides a loop until it is restored', async ({ page }) => {
+		await open(page);
+		await selectRow(page, /Heavy Test 05/);
+		await inspector(page).getByRole('button', { name: 'Reject' }).click();
+		await expect(count(page)).toHaveText(`${TOTAL - 1} loops`);
+		await page.getByRole('button', { name: /^Rejected/ }).click();
+		await expect(rowButtons(page)).toHaveText([/Heavy Test 05/]);
+		await selectRow(page, /Heavy Test 05/); // rejecting moved the selection to the next loop
+		await inspector(page).getByRole('button', { name: 'Undo' }).click();
+		await expect(count(page)).toHaveText('0 loops');
+		await page.getByRole('button', { name: /^All loops/ }).click();
+		await expect(count(page)).toHaveText(`${TOTAL} loops`);
+	});
+
+	test('saves a loop and a collection as GM MIDI files', async ({ page }) => {
+		await open(page);
+		await selectRow(page, /Linear Grit 12/);
+		await rowButtons(page).filter({ hasText: 'Linear Grit 12' }).focus();
+		await page.keyboard.press('s');
+		const toast = page.getByRole('status').filter({ hasText: 'Saved' });
+		await expect(toast).toContainText('Linear Grit 12_150bpm_4-4_2bars.mid');
+		const bytes = await readFile(path.join(exportsDir, 'Linear Grit 12_150bpm_4-4_2bars.mid'));
+		expect(bytes.subarray(0, 4).toString()).toBe('MThd');
+
+		await page.getByLabel('New collection name').fill('Funk set');
+		await page.getByRole('button', { name: 'Add', exact: true }).first().click();
+		for (const title of [/Linear Grit 12/, /Angles 7 8 Fill 1/]) {
+			await selectRow(page, title);
+			await inspector(page).getByLabel('Collection').selectOption({ label: 'Funk set' });
+			await inspector(page).getByRole('button', { name: 'Add', exact: true }).last().click();
+		}
+		await page.getByRole('button', { name: /^Funk set/ }).click();
+		await expect(rowButtons(page)).toHaveText([/Linear Grit 12/, /Angles 7 8 Fill 1/]);
+		await selectRow(page, /Angles 7 8 Fill 1/);
+		await page.getByRole('button', { name: 'Move up' }).click();
+		await expect(rowButtons(page)).toHaveText([/Angles 7 8 Fill 1/, /Linear Grit 12/]);
+		await page.getByRole('button', { name: 'Save all' }).click();
+		await expect(toast).toContainText('Saved 2 files');
+		expect((await readdir(path.join(exportsDir, 'Funk set'))).sort()).toEqual([
+			'01_Angles 7 8 Fill 1_100bpm_7-8_2bars.mid',
+			'02_Linear Grit 12_150bpm_4-4_2bars.mid'
+		]);
+	});
+
+	test('groom applies the fixes on its next run', async ({ request }) => {
+		const fixtures = path.resolve(import.meta.dirname, '../../.fixtures');
+		const { DRUM_LIBRARY_DIR, DRUM_DATA_DIR, ...env } = process.env; // eslint-disable-line @typescript-eslint/no-unused-vars
+		execFileSync(
+			'uv',
+			['run', '--project', '../groom', 'groom', 'run', '--rules', `${fixtures}/packs.yaml`],
+			{
+				env: {
+					...env,
+					DRUM_LIBRARY_DIR: path.join(fixtures, 'library'),
+					DRUM_DATA_DIR: path.join(fixtures, 'data')
+				},
+				stdio: 'ignore'
+			}
+		);
+		const list = await (await request.get('/api/loops')).json();
+		const groove = list.loops.find((r: { title: string }) => r.title === 'Test Groove 8 Bars 07');
+		const detail = await (await request.get(`/api/loops/${groove.id}`)).json();
+		expect([detail.bpm, detail.bpmSource, detail.pending]).toEqual([100, 'curation', []]);
+		const grit = list.loops.find((r: { title: string }) => r.title === 'Linear Grit 12');
+		expect(grit.autoTags).not.toContain('dusty-kit'); // user tags are kept apart...
+		expect(grit.tags).toContain('dusty-kit'); // ...and applied on top
+	});
+});

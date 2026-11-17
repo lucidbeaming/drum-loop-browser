@@ -1,43 +1,78 @@
 <script lang="ts">
-	import type { Pack } from '#lib/catalogue.ts';
-	import type { Filters } from './filters';
+	import type { Collection, Pack } from '#lib/catalogue.ts';
+	import type { Filters, View } from './filters';
 
 	interface Props {
 		filters: Filters;
 		packs: Pack[];
-		total: number;
-		reviewCount: number;
+		collections: Collection[];
+		/** Loops in each view (rejected loops count only towards 'rejected'). */
+		counts: Record<View, number>;
+		/** Create a collection; resolves false if that failed (the page says why). */
+		oncreate: (name: string) => Promise<boolean>;
 	}
 
-	let { filters = $bindable(), packs, total, reviewCount }: Props = $props();
+	let { filters = $bindable(), packs, collections, counts, oncreate }: Props = $props();
 
-	function show(view: Filters['view'], pack: string | null) {
-		filters = { ...filters, view, pack };
+	let newName = $state('');
+
+	function show(view: View, pack: string | null, collection: number | null = null) {
+		filters = { ...filters, view, pack, collection };
+	}
+
+	const VIEWS: [View, string][] = [
+		['all', 'All loops'],
+		['favourites', 'Favourites'],
+		['review', 'Needs review'],
+		['rejected', 'Rejected']
+	];
+
+	async function create(e: SubmitEvent) {
+		e.preventDefault();
+		if (newName.trim() && (await oncreate(newName.trim()))) newName = '';
 	}
 </script>
 
 <nav aria-label="Library">
 	<h2>Library</h2>
 	<ul>
-		<li>
-			<button
-				type="button"
-				aria-pressed={filters.view === 'all' && !filters.pack}
-				onclick={() => show('all', null)}
-			>
-				All loops <span class="n">{total}</span>
-			</button>
-		</li>
-		<li>
-			<button
-				type="button"
-				aria-pressed={filters.view === 'review'}
-				onclick={() => show(filters.view === 'review' ? 'all' : 'review', filters.pack)}
-			>
-				Needs review <span class="n">{reviewCount}</span>
-			</button>
-		</li>
+		{#each VIEWS as [view, label] (view)}
+			<li>
+				<button
+					type="button"
+					aria-pressed={view === 'all'
+						? filters.view === 'all' && !filters.pack && filters.collection === null
+						: filters.view === view}
+					onclick={() =>
+						view === 'all'
+							? show('all', null)
+							: show(filters.view === view ? 'all' : view, filters.pack, filters.collection)}
+				>
+					{label} <span class="n">{counts[view]}</span>
+				</button>
+			</li>
+		{/each}
 	</ul>
+
+	<h2>Collections</h2>
+	<ul>
+		{#each collections as col (col.id)}
+			<li>
+				<button
+					type="button"
+					aria-pressed={filters.collection === col.id}
+					onclick={() => show(filters.view, null, filters.collection === col.id ? null : col.id)}
+				>
+					{col.name} <span class="n">{col.loopIds.length}</span>
+				</button>
+			</li>
+		{/each}
+	</ul>
+	<form class="new" onsubmit={create}>
+		<label for="new-collection" class="sr-only">New collection name</label>
+		<input id="new-collection" bind:value={newName} placeholder="New collection" maxlength="80" />
+		<button type="submit" disabled={!newName.trim()}>Add</button>
+	</form>
 
 	<h2>Packs</h2>
 	<ul>
@@ -79,7 +114,7 @@
 		margin: 0;
 		padding: 0;
 	}
-	button {
+	ul button {
 		display: flex;
 		justify-content: space-between;
 		gap: 0.5rem;
@@ -91,13 +126,26 @@
 		text-align: left;
 		cursor: pointer;
 	}
-	button:hover {
+	ul button:hover:not(:disabled) {
 		background: var(--stripe);
 	}
-	button[aria-pressed='true'] {
+	ul button:disabled {
+		color: var(--muted);
+		cursor: default;
+	}
+	ul button[aria-pressed='true'] {
 		background: var(--selected);
 		font-weight: 600;
 		box-shadow: inset 3px 0 0 var(--accent);
+	}
+	.new {
+		display: flex;
+		gap: 0.25rem;
+		margin: 0.25rem 0.5rem;
+	}
+	.new input {
+		flex: 1;
+		min-width: 0;
 	}
 	.n {
 		color: var(--muted);

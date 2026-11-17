@@ -11,7 +11,9 @@ import type {
 	NoteTuple,
 	SimilarLoop
 } from '#lib/catalogue.ts';
+import { curate, emptyCuration, type GroomedRow } from '#lib/curation.ts';
 import { dataDir, libraryDir } from './config.ts';
+import { allCuration } from './curation.ts';
 
 /** The catalogue.sqlite schema this dashboard understands (groom's store.SCHEMA_VERSION). */
 export const SCHEMA_VERSION = 2;
@@ -19,14 +21,24 @@ export const SCHEMA_VERSION = 2;
 /** Raised when there is no usable catalogue; the message says what to do about it. */
 export class CatalogueUnavailable extends Error {}
 
-const LOOP_ID = /^[0-9a-f]{16}$/;
+export const LOOP_ID = /^[0-9a-f]{16}$/;
 
+// tags the user added are in the catalogue too (source curation); autoTags leaves them out, so
+// that undoing an edit takes effect before groom runs again
 const ROW_COLUMNS = `
 	loop_id AS id, title, pack_id AS packId, group_id AS groupId, style, kind, variant, song,
 	artist, feel, bpm, bpm_check AS bpmCheck, meter_num AS meterNum, meter_den AS meterDen, bars,
-	status, note_count AS noteCount, src_rel_path AS path,
+	status, note_count AS noteCount, src_rel_path AS path, issues,
 	(SELECT json_group_array(tag) FROM (SELECT tag FROM tags t WHERE t.loop_id = loops.loop_id
-		ORDER BY tag)) AS tags`;
+		AND source != 'curation' ORDER BY tag)) AS autoTags`;
+
+function groomed(r: Record<string, unknown>): GroomedRow {
+	return {
+		...(r as unknown as GroomedRow),
+		issues: JSON.parse(String(r.issues)) as string[],
+		autoTags: JSON.parse(String(r.autoTags)) as string[]
+	};
+}
 
 let open: { db: DatabaseSync; file: string; mtimeMs: number } | undefined;
 
@@ -84,11 +96,31 @@ export function listLoops(): LoopList {
 			`SELECT ${ROW_COLUMNS} FROM loops JOIN groups USING (group_id) ORDER BY pack_id, src_rel_path`
 		)
 		.all();
+	const curation = allCuration();
 	return {
 		meta: meta(con),
 		packs: packs as unknown as LoopList['packs'],
-		loops: loops.map((r) => ({ ...r, tags: JSON.parse(String(r.tags)) })) as unknown as LoopRow[]
+		loops: loops.map((r) => curate(groomed(r), curation.get(String(r.id)) ?? emptyCuration()))
 	};
+}
+
+/** The listed rows for ``ids`` (unknown IDs are skipped), e.g. after their curation changed. */
+export function getRows(ids: string[]): LoopRow[] {
+	const valid = ids.filter((id) => LOOP_ID.test(id));
+	if (!valid.length) return [];
+	const rows = db()
+		.prepare(
+			`SELECT ${ROW_COLUMNS} FROM loops JOIN groups USING (group_id)
+			WHERE loop_id IN (${valid.map(() => '?').join(', ')})`
+		)
+		.all(...valid);
+	const curation = allCuration();
+	return rows.map((r) => curate(groomed(r), curation.get(String(r.id)) ?? emptyCuration()));
+}
+
+/** Whether every one of ``ids`` is a loop in the catalogue. */
+export function allExist(ids: string[]): boolean {
+	return ids.length > 0 && getRows(ids).length === new Set(ids).size;
 }
 
 export function getLoop(id: string): LoopDetail | undefined {
@@ -98,7 +130,7 @@ export function getLoop(id: string): LoopDetail | undefined {
 		.prepare(
 			`SELECT ${ROW_COLUMNS}, bpm_source AS bpmSource, bpm_confidence AS bpmConfidence,
 				bpm_candidates AS bpmCandidates, meter_source AS meterSource, bars_source AS barsSource,
-				length_ticks AS lengthTicks, also_at AS alsoAt, issues, remarks, preview_wavs AS demos
+				length_ticks AS lengthTicks, also_at AS alsoAt, remarks, preview_wavs AS demos
 			FROM loops JOIN groups USING (group_id) WHERE loop_id = ?`
 		)
 		.get(id);
@@ -113,12 +145,12 @@ export function getLoop(id: string): LoopDetail | undefined {
 			WHERE similar.loop_id = ? ORDER BY rank`
 		)
 		.all(id) as unknown as SimilarLoop[];
+	const [curated] = getRows([id]);
 	return {
 		...(row as unknown as LoopDetail),
-		tags: JSON.parse(String(row.tags)) as string[],
+		...curated,
 		bpmCandidates: JSON.parse(String(row.bpmCandidates)) as BpmCandidate[],
 		alsoAt: JSON.parse(String(row.alsoAt)) as string[],
-		issues: JSON.parse(String(row.issues)) as string[],
 		remarks: JSON.parse(String(row.remarks)) as string[],
 		demos: (JSON.parse(String(row.demos)) as string[]).map((p) => path.basename(p)),
 		similar,

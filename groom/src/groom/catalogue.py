@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from groom.align import DemoTempo
+from groom.curation import KINDS, STATUSES, parse_bpm, parse_meter
 from groom.features import Features
 from groom.midi import (
     LoopNotes,
@@ -111,6 +112,7 @@ class Loop:
     features: Features | None = None
     tags: list[Tag] = field(default_factory=list)
     similar: list[tuple[str, float]] = field(default_factory=list)  # (loop_id, score)
+    curated_status: str | None = None  # ok, duplicate or rejected, set by the user
 
     @property
     def stem(self) -> str:
@@ -133,6 +135,8 @@ class Loop:
 
     @property
     def status(self) -> str:
+        if self.curated_status:
+            return self.curated_status
         if self.issues or self.bpm_check in ("conflict", "audio-only"):
             return "review"
         # a fill with no tempo evidence follows the song's tempo anyway; a groove needs one
@@ -433,6 +437,37 @@ def _match_per_loop(loop: Loop, strong: list[tuple[Demo, DemoTempo]], aligner: A
     loop.remarks.append(
         f"tempo from the demo {Path(demo.rel_path).name}, which plays another loop of this group"
     )
+
+
+_RESOLVED_BY_METER = ("meter conflict", "meter unknown", "bars conflict")
+_NORMALISE_REMARKS = ("hits past loop end", "repeated ")
+
+
+def apply_fixes(loop: Loop, fixes: dict[str, str], rejected: bool = False) -> None:
+    """The user's corrections (see module curation), after ``normalise``. A meter fix
+    re-normalises the loop, but it keeps the ID its fixes and other curation are filed under."""
+    for name, value in sorted(fixes.items()):
+        if name == "bpm" and (bpm := parse_bpm(value)) is not None:
+            loop.candidates.insert(0, Candidate(bpm, "curation"))
+            _set(loop, bpm, "curation", "confirmed")
+        elif name == "meter" and (meter := parse_meter(value)) is not None:
+            loop.meter_source = "curation"
+            if meter != loop.meter:
+                loop_id = loop.loop_id
+                loop.meter, loop.bars_source = meter, "computed"
+                loop.bars = infer_bars(loop.parsed, meter)
+                loop.issues = [i for i in loop.issues if not i.startswith(_RESOLVED_BY_METER)]
+                loop.remarks = [r for r in loop.remarks if not r.startswith(_NORMALISE_REMARKS)]
+                normalise(loop)
+                loop.loop_id = loop_id
+        elif name == "kind" and value in KINDS:
+            loop.kind = value
+        elif name == "status" and value in STATUSES:
+            loop.curated_status = value
+        else:
+            loop.issues.append(f"curation fix not understood: {name} = {value!r}")
+    if rejected:
+        loop.curated_status = "rejected"
 
 
 def normalise(loop: Loop) -> None:

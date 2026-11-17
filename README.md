@@ -9,9 +9,9 @@ It has two parts:
 | [`groom/`](groom/) | Offline command-line app that analyses, normalises, tags and grooms the raw loop library into a clean catalogue | Python 3.13, uv, mido |
 | [`dashboard/`](dashboard/) | Local web app for browsing, previewing (FluidSynth), curating and simple whole-bar sequencing | SvelteKit, TypeScript, js-synthesizer |
 
-They share nothing except the git-ignored `data/` folder: groom writes the catalogue there, and the dashboard reads it.
+They share nothing except the git-ignored `data/` folder: groom writes the catalogue there and the dashboard reads it; the dashboard writes your curation there (`curation.sqlite`) and groom reads it.
 
-> **Status:** phase 3. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops, and the dashboard browses, filters and auditions them through FluidSynth or a MIDI output. Curation comes next.
+> **Status:** phase 4. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops. The dashboard browses and auditions them through FluidSynth or a MIDI output, curates them (favourites, ratings, tags, fixes, review queue, collections) and saves standard GM MIDI files for the DAW. The kit remap utility and the sequencer come next.
 
 ## Folder layout
 
@@ -78,7 +78,8 @@ uv run groom run --rules /tmp/fx.yaml                     # groom with other pac
    - A loop that isn't a whole number of beats long (e.g. one bar of 15/8 = 7.5 beats) is repeated until it is, because DAWs such as REAPER round a MIDI clip up to a whole beat. This affects 138 loops.
 6. **Analysis:** rhythm features (kit pieces, density, swing, triplets, syncopation, linear playing, ghost notes, backbeat, half time, four on the floor), tags from names (style, feel) and from features (`swung`, `triplet`, `linear`, `busy`, `sparse`, `ride`, `toms`, `ghost-notes`, `four-on-the-floor`, `half-time`, `odd-meter`), and the 10 most similar loops in the same meter.
 7. **QC:** near-duplicates (the same hits as another loop, ignoring velocity and repeats) and notes with no sample in the preview SoundFont's Standard kit go to review; so do silent or clipping renders with `--render`.
-8. **Catalogue and reports:** `data/catalogue.sqlite`, plus `data/reports/coverage.csv`, `review.csv` and `previews.csv`.
+8. **Your curation** from the dashboard (`data/curation.sqlite`) is applied last and wins over everything else: BPM, meter and kind fixes (`*_source = curation`), tags you added or removed, loops you kept after review, marked as duplicates or rejected. A loop keeps its ID when you fix its meter, so its curation stays attached.
+9. **Catalogue and reports:** `data/catalogue.sqlite`, plus `data/reports/coverage.csv`, `review.csv` and `previews.csv`.
 
 Each loop's `bpm_check` says how far its tempo can be trusted:
 
@@ -101,18 +102,24 @@ A demo that clearly plays at a different whole tempo than a loop's name is not a
 
 - **Find:** pick a pack or *Needs review* in the sidebar, search (name, song, artist, style, pack, path, tags such as `swung` or `linear`, `7/8`, `120bpm`), and filter by BPM range, meter and kind. Column headers sort.
 - **Listen:** click a loop's name to play it. FluidSynth loads `lucidrum.sf2` on the first play. Loops play at their own BPM (or the global tempo, if *Loop's own tempo* is off or the BPM is unknown), repeat gaplessly, and with *Switch on the bar* the next loop takes over on the downbeat. *Fills play once* plays a fill a single time, then returns to the groove that was playing.
-- **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, tags, review issues, similar loops (click to open one), and the vendor's WAV demo for the group.
+- **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, review issues, the vendor's WAV demo for the group, and similar loops (click to open one).
+- **Curate:** favourite, rate (0–5), reject (rejected loops only show under *Rejected*), take notes, add or remove tags, and fix a loop's BPM, meter or kind. Fixes show at once, marked as pending, and `groom run` makes them permanent. *Needs review* works as a queue: *Keep*, *Fix…*, *Duplicate* or *Reject* moves on to the next loop. Everything is stored in `data/curation.sqlite`, keyed by loop ID, so it survives renames and re-grooming.
+- **Collections:** create one in the sidebar, add loops from the inspector (or mark several and add them at once), and reorder them in the collection view.
+- **Save for the DAW:** *Save .mid* (or `S`) writes the loop to the exports folder, `DRUM_EXPORT_DIR` (default `/Users/lucid/_Audio/drum-loops`), as a standard GM file: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars, named `{title}_{bpm}bpm_{num}-{den}_{bars}bars.mid`. Saving again overwrites it. Mark loops (`X` or the checkbox) to save, tag or collect several at once; *Save all* in a collection writes `<exports>/<collection>/01_…`, in order. *Save without tempo* leaves the tempo to the DAW. Add the exports folder to Reason's browser and Reaper's Media Explorer once.
 - **Kits and outputs:** choose any lucidrum kit (SFX is left out: it has no kick or snare). *Enable MIDI out* sends the same notes to a Web MIDI port, such as an IAC bus into Reason or REAPER, on channel 10 by default (Chrome; Safari has no Web MIDI).
 
 | Key (in the loop list) | Does |
 |---|---|
 | ↑ ↓, Page Up/Down, Home/End | Move; while playing, the new loop takes over |
 | Space | Play or stop the selected loop |
+| `F` | Favourite or unfavourite the selected loop |
+| `X` | Mark or unmark the selected loop |
+| `S` | Save the selected loop to the exports folder |
 | Enter | Play the selected loop |
 | Escape | Stop |
 | `/` (anywhere) | Jump to search |
 
-API routes (localhost only): `GET /api/loops`, `/api/loops/<id>` (with notes), `/api/midi/<id>` (normalised file), `/api/preview/<group>/<n>` (WAV demo, with byte ranges) and `/api/soundfont/<name>.sf2`.
+API routes (localhost only): `GET /api/loops`, `/api/loops/<id>` (with notes), `/api/midi/<id>` (normalised file), `/api/preview/<group>/<n>` (WAV demo, with byte ranges) and `/api/soundfont/<name>.sf2`; `PATCH /api/curation`, `PUT /api/curation/tags` and `/api/curation/fixes`; `GET`/`POST /api/collections`, `PATCH`/`DELETE /api/collections/<id>`; `POST /api/exports` (loops or a collection) and `/api/exports/open` (shows the folder in the Finder).
 
 `/spike` is the phase 0 FluidSynth check: a hand-made test loop with kit and tempo controls and a level meter.
 
