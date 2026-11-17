@@ -171,6 +171,22 @@ describe('Scheduler', () => {
 		]);
 	});
 
+	it('swaps a playing loop for an edited one without stopping', async () => {
+		const { scheduler, run, played, sink } = setup();
+		await scheduler.play(clip(groove));
+		await run(500); // queued to 700 ms: the kick at 100 is out
+		scheduler.replaceLoop('clip', fill);
+		scheduler.replaceLoop('other', groove); // another ID changes nothing
+		await run(2000);
+		// from tick 576 on the fill plays: its tom at 960 (1100 ms), then the next bar's 45
+		expect(played()).toEqual([
+			[100, 36],
+			[1100, 43],
+			[2100, 45]
+		]);
+		expect(sink.silenced).toBe(1); // only the initial stop
+	});
+
 	it('gives hits their own duration at the current tempo, or the default', async () => {
 		const { scheduler, run, sink } = setup();
 		const loop: Loop = { ...groove, events: [{ tick: 0, key: 36, vel: 100, dur: 120 }] };

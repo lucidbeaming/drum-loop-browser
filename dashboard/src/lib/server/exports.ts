@@ -1,7 +1,14 @@
 import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { exportName, writeLoop } from '#lib/midi/smf.ts';
+import { exportName, writeArrangement, writeLoop } from '#lib/midi/smf.ts';
+import {
+	arrangementBarTicks,
+	laneNotes,
+	lengthBars,
+	type Arrangement,
+	type ClipLoop
+} from '#lib/sequencer/arrangement.ts';
 import { getLoop } from './catalogue.ts';
 import { exportDir } from './config.ts';
 
@@ -59,6 +66,36 @@ export async function saveLoops(ids: string[], options: SaveOptions = {}): Promi
 		files.push(file);
 	}
 	return { dir, files, skipped };
+}
+
+/**
+ * Write an arrangement as one Type 1 MIDI file (a track per lane, channel 10, standard GM) into
+ * the exports folder, named `{name}_{bpm}bpm_{num}-{den}_{bars}bars.mid`.
+ */
+export async function saveArrangement(a: Arrangement, tempo = true): Promise<SaveResult> {
+	const loops = new Map<string, ReturnType<typeof getLoop>>();
+	const loop = (id: string) => {
+		if (!loops.has(id)) loops.set(id, getLoop(id));
+		return loops.get(id);
+	};
+	const lookup = (id: string): ClipLoop | undefined => loop(id);
+	const skipped = [...new Set(a.lanes.flatMap((l) => l.clips.map((c) => c.loopId)))]
+		.filter((id) => !loop(id))
+		.map((id) => `missing loop ${id}`);
+	const bars = lengthBars(a, lookup);
+	const bpm = tempo ? a.bpm : null;
+	const smf = writeArrangement({
+		name: a.name,
+		bpm,
+		meterNum: a.meterNum,
+		meterDen: a.meterDen,
+		lengthTicks: bars * arrangementBarTicks(a),
+		lanes: a.lanes.map((lane, i) => ({ name: `Lane ${i + 1}`, notes: laneNotes(a, lane, loop) }))
+	});
+	await mkdir(exportDir, { recursive: true });
+	const file = path.join(exportDir, exportName({ ...a, title: a.name, bpm, bars }));
+	await writeFile(file, smf);
+	return { dir: exportDir, files: [file], skipped };
 }
 
 /** Show the exports folder in the Finder. */

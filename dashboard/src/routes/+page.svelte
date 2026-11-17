@@ -6,6 +6,8 @@
 	import Sidebar from '#lib/browse/Sidebar.svelte';
 	import Transport from '#lib/browse/Transport.svelte';
 	import ListTools from '#lib/browse/ListTools.svelte';
+	import Sequencer from '#lib/sequencer/Sequencer.svelte';
+	import { Sequencer as SequencerState } from '#lib/sequencer/sequencer.svelte.ts';
 	import type { CurationActions } from '#lib/browse/Curate.svelte';
 	import {
 		collections as collectionApi,
@@ -79,6 +81,21 @@
 
 	const player = new Player();
 	$effect(() => () => void player.close());
+
+	const rowsById = $derived(new Map(loops.map((r) => [r.id, r])));
+	const seq = new SequencerState(() => rowsById, player);
+	$effect(() => {
+		void (async () => {
+			await seq.loadList();
+			if (seq.saved[0]) await seq.open(seq.saved[0].id);
+		})();
+		const leave = () => void seq.flush(true);
+		window.addEventListener('pagehide', leave);
+		return () => {
+			window.removeEventListener('pagehide', leave);
+			leave();
+		};
+	});
 
 	const playingId = $derived(player.position?.loop.id ?? null);
 	const playhead = $derived(
@@ -287,6 +304,7 @@
 				onmark={toggleMark}
 				onfavourite={toggleFavourite}
 				onsave={(id) => actions.save([id])}
+				onappend={(id) => seq.add(id)}
 			/>
 		</main>
 		<aside class="detail" aria-label="Selected loop">
@@ -301,8 +319,17 @@
 				onselect={(id) => void select(id, false)}
 				{collections}
 				{actions}
+				onappend={(id) => seq.add(id)}
+				activeLane={seq.activeLane}
 			/>
 		</aside>
+		<div class="seq">
+			<Sequencer
+				{seq}
+				playing={player.playingArrangement}
+				onexport={() => attempt(async () => reportSave(await seq.export(!withoutTempo)))}
+			/>
+		</div>
 		<footer class="bottom">
 			<Transport {player} ontoggle={toggle} canPlay={detail !== null} />
 		</footer>
@@ -323,10 +350,11 @@
 	.app {
 		display: grid;
 		grid-template-columns: 15rem minmax(0, 1fr) minmax(20rem, 28rem);
-		grid-template-rows: auto minmax(0, 1fr) auto;
+		grid-template-rows: auto minmax(0, 1fr) auto auto;
 		grid-template-areas:
 			'top top top'
 			'side list detail'
+			'seq seq seq'
 			'bottom bottom bottom';
 		height: 100vh;
 		height: 100dvh;
@@ -394,6 +422,10 @@
 		grid-area: detail;
 		min-height: 0;
 	}
+	.seq {
+		grid-area: seq;
+		min-width: 0;
+	}
 	.bottom {
 		grid-area: bottom;
 	}
@@ -406,11 +438,12 @@
 	@media (max-width: 64rem) {
 		.app {
 			grid-template-columns: 12rem minmax(0, 1fr);
-			grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+			grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
 			grid-template-areas:
 				'top top'
 				'side list'
 				'side detail'
+				'seq seq'
 				'bottom bottom';
 		}
 		.top {

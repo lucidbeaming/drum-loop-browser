@@ -43,3 +43,12 @@ CREATE TABLE IF NOT EXISTS collection_items (
     position INTEGER NOT NULL,
     PRIMARY KEY (collection_id, loop_id)
 );
+
+-- sequencer documents (dashboard/src/lib/sequencer/arrangement.ts), saved as JSON
+CREATE TABLE IF NOT EXISTS arrangements (
+    arrangement_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    bpm REAL NOT NULL,
+    json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);

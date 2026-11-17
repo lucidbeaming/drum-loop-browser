@@ -11,7 +11,7 @@ It has two parts:
 
 They share nothing except the git-ignored `data/` folder: groom writes the catalogue there and the dashboard reads it; the dashboard writes your curation there (`curation.sqlite`) and groom reads it.
 
-> **Status:** phase 4. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops. The dashboard browses and auditions them through FluidSynth or a MIDI output, curates them (favourites, ratings, tags, fixes, review queue, collections) and saves standard GM MIDI files for the DAW. The kit remap utility and the sequencer come next.
+> **Status:** phase 5. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops. The dashboard browses and auditions them through FluidSynth or a MIDI output, curates them (favourites, ratings, tags, fixes, review queue, collections) and saves standard GM MIDI files for the DAW. The kit remap utility and the sequencer come next.
 
 ## Folder layout
 
@@ -135,6 +135,14 @@ uv run groom remap "/Users/lucid/_Audio/drum-loops/Funk set" --kit kong-default 
 - **Save for the DAW:** *Save .mid* (or `S`) writes the loop to the exports folder, `DRUM_EXPORT_DIR` (default `/Users/lucid/_Audio/drum-loops`), as a standard GM file: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars, named `{title}_{bpm}bpm_{num}-{den}_{bars}bars.mid`. Saving again overwrites it. Mark loops (`X` or the checkbox) to save, tag or collect several at once; *Save all* in a collection writes `<exports>/<collection>/01_…`, in order. *Save without tempo* leaves the tempo to the DAW. Add the exports folder to Reason's browser and Reaper's Media Explorer once.
 - **Kits and outputs:** choose any lucidrum kit (SFX is left out: it has no kick or snare). *Enable MIDI out* sends the same notes to a Web MIDI port, such as an IAC bus into Reason or REAPER, on channel 10 by default (Chrome; Safari has no Web MIDI).
 
+- **Sequence:** the *Sequencer* panel builds an arrangement: a tempo, a meter and 1–4 lanes of loops, each starting on a bar and repeated a whole number of times.
+  - **Adding loops:** drag a loop from the list onto a lane, press `A` in the list, or use *Add to lane* in the inspector to add the selected loop to the active lane.
+  - **Editing clips:** drag a clip to move it, or drag its right edge to repeat it. From the keyboard, select a clip and use the arrows (Shift: 4 bars), `]`/`[`, Delete and ⌘D. ⌘Z undoes and ⇧⌘Z redoes.
+  - **Meters:** a loop in another meter keeps its own and takes up whole bars of the arrangement. It's marked so you can see it.
+  - **Playing:** *Play* plays the arrangement through the same engine as previews, repeating it, or only the *Loop bars* range. Edits are heard while it plays.
+  - **Saving:** arrangements are saved as you go (in `data/curation.sqlite`).
+  - **Exporting:** *Save .mid* writes one Type 1 file to the exports folder (a tempo and meter track, then a channel-10 track per lane), named `{name}_{bpm}bpm_{num}-{den}_{bars}bars.mid`.
+
 | Key (in the loop list) | Does |
 |---|---|
 | ↑ ↓, Page Up/Down, Home/End | Move; while playing, the new loop takes over |
@@ -142,11 +150,12 @@ uv run groom remap "/Users/lucid/_Audio/drum-loops/Funk set" --kit kong-default 
 | `F` | Favourite or unfavourite the selected loop |
 | `X` | Mark or unmark the selected loop |
 | `S` | Save the selected loop to the exports folder |
+| `A` | Add the selected loop to the sequencer's active lane |
 | Enter | Play the selected loop |
 | Escape | Stop |
 | `/` (anywhere) | Jump to search |
 
-API routes (localhost only): `GET /api/loops`, `/api/loops/<id>` (with notes), `/api/midi/<id>` (normalised file), `/api/preview/<group>/<n>` (WAV demo, with byte ranges) and `/api/soundfont/<name>.sf2`; `PATCH /api/curation`, `PUT /api/curation/tags` and `/api/curation/fixes`; `GET`/`POST /api/collections`, `PATCH`/`DELETE /api/collections/<id>`; `POST /api/exports` (loops or a collection) and `/api/exports/open` (shows the folder in the Finder).
+API routes (localhost only): `GET /api/loops`, `/api/loops/<id>` (with notes), `/api/midi/<id>` (normalised file), `/api/preview/<group>/<n>` (WAV demo, with byte ranges) and `/api/soundfont/<name>.sf2`; `PATCH /api/curation`, `PUT /api/curation/tags` and `/api/curation/fixes`; `GET`/`POST /api/collections`, `PATCH`/`DELETE /api/collections/<id>`; `GET`/`POST /api/arrangements`, `GET`/`PUT`/`DELETE /api/arrangements/<id>`; `POST /api/exports` (loops, a collection or an arrangement) and `/api/exports/open` (shows the folder in the Finder).
 
 `/spike` is the phase 0 FluidSynth check: a hand-made test loop with kit and tempo controls and a level meter.
 

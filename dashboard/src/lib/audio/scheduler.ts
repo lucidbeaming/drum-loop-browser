@@ -115,6 +115,19 @@ export class Scheduler {
 		await this.tick();
 	}
 
+	/**
+	 * Swap the notes of the playing (or waiting) clip with this ID, from the next unqueued tick
+	 * on, without stopping: e.g. an arrangement edited while it plays.
+	 */
+	replaceLoop(id: string, loop: Loop): void {
+		for (const seg of [this.current, this.next]) {
+			if (seg?.clip.id !== id) continue;
+			seg.clip = { ...seg.clip, loop };
+			seg.loop = atPpq(loop);
+			if (seg.clip.once) seg.end = seg.start + seg.loop.lengthTicks;
+		}
+	}
+
 	/** Change tempo from the next unqueued note, for everything playing or queued. */
 	setTempo(bpm: number): void {
 		for (const seg of [this.current, this.next]) {

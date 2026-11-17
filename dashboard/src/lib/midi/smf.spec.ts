@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportName, writeLoop } from './smf.ts';
+import { exportName, writeArrangement, writeLoop } from './smf.ts';
 
 /** A minimal reader for one-track files: the header and every event, with absolute ticks. */
 function read(bytes: Uint8Array) {
@@ -77,6 +77,35 @@ describe('writeLoop', () => {
 	it('leaves the tempo out when asked', () => {
 		const { events } = read(writeLoop({ ...loop, bpm: null }));
 		expect(events.some((e) => e.bytes[1] === 0x51)).toBe(false);
+	});
+});
+
+describe('writeArrangement', () => {
+	it('writes Type 1: a tempo and meter track, then one track per lane', () => {
+		const bytes = writeArrangement({
+			name: 'Song',
+			bpm: 96,
+			meterNum: 4,
+			meterDen: 4,
+			lengthTicks: 3840,
+			lanes: [
+				{ name: 'Lane 1', notes: [[0, 36, 100, 60]] },
+				{ name: 'Lane 2', notes: [[1920, 49, 90, 60]] }
+			]
+		});
+		const view = new DataView(bytes.buffer);
+		expect([view.getUint16(8), view.getUint16(10), view.getUint16(12)]).toEqual([1, 3, 480]);
+		// walk the track chunks
+		const tracks: Uint8Array[] = [];
+		for (let pos = 14; pos < bytes.length;) {
+			expect(String.fromCharCode(...bytes.subarray(pos, pos + 4))).toBe('MTrk');
+			const len = view.getUint32(pos + 4);
+			tracks.push(bytes.subarray(pos + 8, pos + 8 + len));
+			pos += 8 + len;
+		}
+		expect(tracks).toHaveLength(3);
+		expect([...tracks[0]].includes(0x51)).toBe(true); // tempo in the first track
+		expect([...tracks[2]].join(',')).toContain([0x99, 49, 90].join(','));
 	});
 });
 
