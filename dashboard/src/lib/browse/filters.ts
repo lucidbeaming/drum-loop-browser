@@ -47,7 +47,8 @@ export function searchText(row: LoopRow, packs: Map<string, Pack>): string {
 		meterLabel(row),
 		row.bpm === null ? '' : `${row.bpm}bpm`,
 		packs.get(row.packId)?.title,
-		row.path
+		row.path,
+		...row.tags
 	]
 		.filter(Boolean)
 		.join(' ')

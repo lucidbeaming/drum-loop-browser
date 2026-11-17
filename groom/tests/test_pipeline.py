@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -102,3 +103,52 @@ def test_without_audio_named_tempos_are_unverified(paths: Paths, fixture_rules: 
     checks = {lp.rel_path: lp.bpm_check for lp in result.loops}
     assert checks[FIXTURES[1].rel_path] == "unverified"
     assert checks[FIXTURES[5].rel_path] == "unknown"
+
+
+def test_features_tags_and_similar(rows: dict[str, sqlite3.Row], paths: Paths) -> None:
+    con = sqlite3.connect(paths.data / "catalogue.sqlite")
+    assert con.execute("SELECT count(*) FROM features").fetchone()[0] == len(rows)
+    angles = rows[FIXTURES[1].rel_path]["loop_id"]
+    tags = dict(con.execute("SELECT tag, source FROM tags WHERE loop_id = ?", (angles,)).fetchall())
+    assert tags["odd-meter"] == "feature"  # 7/8
+    assert tags["angles"] == "rule"  # the style from the folder name
+    similar = con.execute("SELECT loop_id, other_id FROM similar").fetchall()
+    meters = dict(con.execute("SELECT loop_id, meter_num || '/' || meter_den FROM loops"))
+    assert similar and all(meters[a] == meters[b] for a, b in similar)
+
+
+def test_demo_at_another_tempo_keeps_the_name(rows: dict[str, sqlite3.Row]) -> None:
+    row = rows[FIXTURES[3].rel_path]
+    assert (row["bpm"], row["bpm_source"], row["status"]) == (150, "folder", "ok")
+    assert "Linear_Grit_MIDI_172.wav plays at 172 BPM, not the folder's 150" in row["remarks"]
+
+
+def test_fills_without_a_tempo_are_not_reviewed(rows: dict[str, sqlite3.Row]) -> None:
+    fill = rows["Fills_MIDILoops/Swung Fills/2 Bar Fills/Fill - Test Roll.mid"]
+    assert (fill["bpm_check"], fill["status"]) == ("unknown", "ok")
+    groove = rows["BarsFolder_MIDILoops/MIDI Loops/Test Groove - 8 Bars/TestGroove_8Bars_07.mid"]
+    assert groove["status"] == "review"
+
+
+def test_sibling_takes_the_demo_tempo(rows: dict[str, sqlite3.Row]) -> None:
+    row = rows[FIXTURES[11].rel_path]
+    assert row["bpm_source"] == "sibling-demo" and row["status"] == "ok"
+    assert "plays another loop of this group" in row["remarks"]
+    assert rows[FIXTURES[10].rel_path]["bpm_source"] == "audio"
+
+
+def test_near_duplicate_goes_to_review(paths: Paths, fixture_rules: Path, tmp_path: Path) -> None:
+    library = tmp_path / "library"
+    shutil.copytree(paths.library, library)
+    # the same pattern played softer is a near-duplicate, not an identical file
+    src = library / FIXTURES[0].rel_path
+    mid = mido.MidiFile(src)
+    for msg in mid.tracks[0]:
+        if msg.type == "note_on" and msg.velocity:
+            msg.velocity = max(1, msg.velocity - 10)
+    mid.save(src.with_name("118_TestSong_TestArtist2.mid"))
+    result = run(Paths(data=tmp_path / "data", library=library, soundfonts=paths.soundfonts),
+                 fixture_rules, audio=False)  # fmt: skip
+    copy = next(lp for lp in result.loops if lp.rel_path.endswith("TestArtist2.mid"))
+    assert copy.status == "review"
+    assert copy.issues == [f"near-duplicate of {FIXTURES[0].rel_path}"]

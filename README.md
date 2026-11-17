@@ -11,7 +11,7 @@ It has two parts:
 
 They share nothing except the git-ignored `data/` folder: groom writes the catalogue there, and the dashboard reads it.
 
-> **Status:** phase 2. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, and the dashboard browses, filters and auditions them through FluidSynth or a MIDI output. Analysis, tags and curation come next.
+> **Status:** phase 3. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops, and the dashboard browses, filters and auditions them through FluidSynth or a MIDI output. Curation comes next.
 
 ## Folder layout
 
@@ -39,7 +39,7 @@ Saved loops from the dashboard go to `/Users/lucid/_Audio/drum-loops`, where Rea
 - macOS
 - [uv](https://docs.astral.sh/uv/) (Python 3.13 is installed by uv as needed)
 - [nvm](https://github.com/nvm-sh/nvm) with **Node 24** (pinned in `.nvmrc`; it ships npm 11, which the dashboard needs because npm 10 fails to install its dependency tree)
-- FluidSynth from Homebrew (`brew install fluid-synth`), for groom's offline rendering in a later phase
+- FluidSynth from Homebrew (`brew install fluid-synth`), only for `groom run --render`
 
 ## Getting started
 
@@ -57,7 +57,8 @@ make dev       # dashboard at http://localhost:5173
 
 ```sh
 cd groom
-uv run groom run                 # groom the library into data/ (about 5 s; first run ~15 s while demos are analysed)
+uv run groom run                 # groom the library into data/ (about 7 s; the first run takes ~2 min while demos are analysed)
+uv run groom run --render        # also render every loop with FluidSynth and flag silent or clipping ones
 uv run groom report              # per-pack coverage from the last run
 uv run groom inspect Angular_7_8 # everything known about a loop (ID or part of its path)
 uv run groom paths               # show the locations groom reads and writes
@@ -70,21 +71,27 @@ uv run groom run --rules /tmp/fx.yaml                     # groom with other pac
 1. **Names → metadata** using the per-pack rules in [`groom/packs.yaml`](groom/packs.yaml): BPM, meter, bar count, kind (groove, fill, break, ending), style, song/artist.
 2. **Bars from the notes** when the name doesn't say: the last hit decides, with a ⅛-beat allowance for slightly late hits. End-of-track markers are ignored (some files put them at beat 400).
 3. **Tempo checked against the vendor's WAV demos.** Each BPM candidate (file name, folder, demo name, MIDI tempo) is scored against the demo's onset periodicity. Names disagree surprisingly often, and the MIDI tempo events in particular are mostly wrong.
-4. **Normalised copy** in `data/normalised/<loop_id>.mid`: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars. Timing and velocities are untouched. Additionally:
+4. **Tempo from aligning MIDI with audio** where names leave it in doubt: the loop's hits are slid along the demo's onsets at each trial BPM, and the best-fitting BPM wins. It counts as strong only when the demo's length also fits a whole number of bars at a whole BPM within a beat of it. (On 67 demos with a tempo in their name, every strong match gave that tempo.) In packs whose demos each play one loop (`tempo: per-loop` in `packs.yaml`, e.g. Long Loops), the loop a demo clearly plays is matched, and its siblings take the tempo of the demo they line up with best, as an unchecked suggestion.
+5. **Normalised copy** in `data/normalised/<loop_id>.mid`: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars. Timing and velocities are untouched. Additionally:
    - Hits at or just past the loop end wrap to the start.
    - Hits last at least a 16th note, but never into the next hit on the same drum. Most vendor hits have zero length, and synths that honour note-off, FluidSynth included, would cut them to almost nothing.
    - A loop that isn't a whole number of beats long (e.g. one bar of 15/8 = 7.5 beats) is repeated until it is, because DAWs such as REAPER round a MIDI clip up to a whole beat. This affects 138 loops.
-5. **Catalogue and reports:** `data/catalogue.sqlite`, plus `data/reports/coverage.csv`, `review.csv` and `previews.csv`.
+6. **Analysis:** rhythm features (kit pieces, density, swing, triplets, syncopation, linear playing, ghost notes, backbeat, half time, four on the floor), tags from names (style, feel) and from features (`swung`, `triplet`, `linear`, `busy`, `sparse`, `ride`, `toms`, `ghost-notes`, `four-on-the-floor`, `half-time`, `odd-meter`), and the 10 most similar loops in the same meter.
+7. **QC:** near-duplicates (the same hits as another loop, ignoring velocity and repeats) and notes with no sample in the preview SoundFont's Standard kit go to review; so do silent or clipping renders with `--render`.
+8. **Catalogue and reports:** `data/catalogue.sqlite`, plus `data/reports/coverage.csv`, `review.csv` and `previews.csv`.
 
 Each loop's `bpm_check` says how far its tempo can be trusted:
 
 | `bpm_check` | Meaning |
 |---|---|
 | `confirmed` | A demo's audio agrees with the named BPM |
-| `unverified` | Named BPM, but no demo to check it against |
-| `conflict` | The audio contradicts a name; all candidates (and the audio's own estimate) are kept for review |
+| `audio-matched` | No BPM in any name, but the MIDI lines up clearly with a demo |
+| `unverified` | Named BPM with no demo to check it against, or (`bpm_source = sibling-demo`) the tempo of a demo of another loop in the group |
+| `conflict` | The audio contradicts a name, but not clearly enough to say the demo is just at another tempo; all candidates are kept for review |
 | `audio-only` | No BPM in any name; estimated from the demo; needs review |
-| `unknown` | No BPM anywhere and no demo |
+| `unknown` | No BPM anywhere and no demo (reviewed for grooves; fills just follow the song tempo) |
+
+A demo that clearly plays at a different whole tempo than a loop's name is not a conflict: vendors often demo loops at a second tempo. The loop keeps its own tempo as `unverified`, with a remark giving the demo's tempo.
 
 `loop_id` is a hash of the normalised notes, so it survives renames and re-runs, and identical files become one loop.
 
@@ -92,9 +99,9 @@ Each loop's `bpm_check` says how far its tempo can be trusted:
 
 `make dev`, then open <http://localhost:5173>. The dashboard reads `data/catalogue.sqlite` (run `groom run` first) and refuses to start against a catalogue with a different schema version.
 
-- **Find:** pick a pack or *Needs review* in the sidebar, search (name, song, artist, style, pack, path, `7/8`, `120bpm`), and filter by BPM range, meter and kind. Column headers sort.
+- **Find:** pick a pack or *Needs review* in the sidebar, search (name, song, artist, style, pack, path, tags such as `swung` or `linear`, `7/8`, `120bpm`), and filter by BPM range, meter and kind. Column headers sort.
 - **Listen:** click a loop's name to play it. FluidSynth loads `lucidrum.sf2` on the first play. Loops play at their own BPM (or the global tempo, if *Loop's own tempo* is off or the BPM is unknown), repeat gaplessly, and with *Switch on the bar* the next loop takes over on the downbeat. *Fills play once* plays a fill a single time, then returns to the groove that was playing.
-- **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, review issues, and the vendor's WAV demo for the group.
+- **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, tags, review issues, similar loops (click to open one), and the vendor's WAV demo for the group.
 - **Kits and outputs:** choose any lucidrum kit (SFX is left out: it has no kick or snare). *Enable MIDI out* sends the same notes to a Web MIDI port, such as an IAC bus into Reason or REAPER, on channel 10 by default (Chrome; Safari has no Web MIDI).
 
 | Key (in the loop list) | Does |

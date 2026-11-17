@@ -8,12 +8,13 @@ import type {
 	LoopDetail,
 	LoopList,
 	LoopRow,
-	NoteTuple
+	NoteTuple,
+	SimilarLoop
 } from '#lib/catalogue.ts';
 import { dataDir, libraryDir } from './config.ts';
 
 /** The catalogue.sqlite schema this dashboard understands (groom's store.SCHEMA_VERSION). */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Raised when there is no usable catalogue; the message says what to do about it. */
 export class CatalogueUnavailable extends Error {}
@@ -23,7 +24,9 @@ const LOOP_ID = /^[0-9a-f]{16}$/;
 const ROW_COLUMNS = `
 	loop_id AS id, title, pack_id AS packId, group_id AS groupId, style, kind, variant, song,
 	artist, feel, bpm, bpm_check AS bpmCheck, meter_num AS meterNum, meter_den AS meterDen, bars,
-	status, note_count AS noteCount, src_rel_path AS path`;
+	status, note_count AS noteCount, src_rel_path AS path,
+	(SELECT json_group_array(tag) FROM (SELECT tag FROM tags t WHERE t.loop_id = loops.loop_id
+		ORDER BY tag)) AS tags`;
 
 let open: { db: DatabaseSync; file: string; mtimeMs: number } | undefined;
 
@@ -84,7 +87,7 @@ export function listLoops(): LoopList {
 	return {
 		meta: meta(con),
 		packs: packs as unknown as LoopList['packs'],
-		loops: loops as unknown as LoopRow[]
+		loops: loops.map((r) => ({ ...r, tags: JSON.parse(String(r.tags)) })) as unknown as LoopRow[]
 	};
 }
 
@@ -104,13 +107,21 @@ export function getLoop(id: string): LoopDetail | undefined {
 		.prepare('SELECT tick, key, vel, dur FROM notes WHERE loop_id = ? ORDER BY tick, key')
 		.all(id)
 		.map((n) => [n.tick, n.key, n.vel, n.dur] as NoteTuple);
+	const similar = con
+		.prepare(
+			`SELECT other_id AS id, title, score FROM similar JOIN loops ON loops.loop_id = other_id
+			WHERE similar.loop_id = ? ORDER BY rank`
+		)
+		.all(id) as unknown as SimilarLoop[];
 	return {
 		...(row as unknown as LoopDetail),
+		tags: JSON.parse(String(row.tags)) as string[],
 		bpmCandidates: JSON.parse(String(row.bpmCandidates)) as BpmCandidate[],
 		alsoAt: JSON.parse(String(row.alsoAt)) as string[],
 		issues: JSON.parse(String(row.issues)) as string[],
 		remarks: JSON.parse(String(row.remarks)) as string[],
 		demos: (JSON.parse(String(row.demos)) as string[]).map((p) => path.basename(p)),
+		similar,
 		notes
 	};
 }

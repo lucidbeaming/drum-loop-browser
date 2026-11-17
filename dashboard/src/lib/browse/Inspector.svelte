@@ -11,12 +11,15 @@
 		/** Tempo the loop would play at now. */
 		tempo?: number;
 		ontoggle: () => void;
+		/** Show another loop (from the similar-loops list). */
+		onselect: (id: string) => void;
 	}
 
-	let { loop, loading, packs, playing, playhead, tempo, ontoggle }: Props = $props();
+	let { loop, loading, packs, playing, playhead, tempo, ontoggle, onselect }: Props = $props();
 
 	const BPM_CHECK: Record<BpmCheck, string> = {
 		confirmed: 'confirmed by the demo',
+		'audio-matched': 'matched to the demo audio',
 		unverified: 'from the name, not checked against audio',
 		conflict: 'conflicts with the demo; needs review',
 		'audio-only': 'estimated from the demo; needs review',
@@ -47,7 +50,11 @@
 			<dt>BPM</dt>
 			<dd>
 				{loop.bpm ?? '—'}
-				<span class="note">{BPM_CHECK[loop.bpmCheck]}</span>
+				<span class="note">
+					{loop.bpmSource === 'sibling-demo'
+						? 'from the demo of another loop in this group; not checked'
+						: BPM_CHECK[loop.bpmCheck]}
+				</span>
 				{#if tempo && tempo !== loop.bpm}<span class="note">plays at {tempo}</span>{/if}
 			</dd>
 			<dt>Meter</dt>
@@ -56,6 +63,14 @@
 			<dd>{loop.bars}</dd>
 			<dt>Hits</dt>
 			<dd>{loop.noteCount}</dd>
+			{#if loop.tags.length}
+				<dt>Tags</dt>
+				<dd>
+					<ul class="tags">
+						{#each loop.tags as tag (tag)}<li>{tag}</li>{/each}
+					</ul>
+				</dd>
+			{/if}
 		</dl>
 
 		{#if loop.status === 'review'}
@@ -95,6 +110,18 @@
 					<audio controls preload="none" src="/api/preview/{loop.groupId}/{i}"></audio>
 				</figure>
 			{/each}
+		{/if}
+
+		{#if loop.similar.length}
+			<h3>Similar loops</h3>
+			<ul class="similar">
+				{#each loop.similar as other (other.id)}
+					<li>
+						<button type="button" onclick={() => onselect(other.id)}>{other.title}</button>
+						<span class="note">{Math.round(other.score * 100)}%</span>
+					</li>
+				{/each}
+			</ul>
 		{/if}
 
 		<h3>Source</h3>
@@ -179,6 +206,44 @@
 	}
 	.review p {
 		padding: 0.25rem 0 0;
+	}
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.tags li {
+		padding: 0 0.4rem;
+		border: 1px solid var(--line);
+		border-radius: 3px;
+		font-size: 0.8125rem;
+	}
+	.similar {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.similar li {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+	.similar button {
+		padding: 0.125rem 0;
+		border: 0;
+		background: none;
+		color: var(--accent);
+		font: inherit;
+		text-align: left;
+		text-decoration: underline;
+		cursor: pointer;
+	}
+	.similar .note {
+		display: inline;
 	}
 	.demo {
 		margin: 0 0 0.5rem;

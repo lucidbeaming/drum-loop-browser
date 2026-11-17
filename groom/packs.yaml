@@ -9,6 +9,8 @@
 #
 # preview.scope says what one demo covers: a single "file" or a whole "group". The demo's `key`
 # is fuzzy-matched against the field named by preview.match_on (from the group or file fields).
+# preview.tempo is "shared" (the default: a group's loops share the demo's tempo) or "per-loop"
+# (each demo plays one loop, and loops in a group may differ in tempo).
 # defaults fill in fields that no regex provides.
 
 packs:
@@ -75,6 +77,7 @@ packs:
       pattern: '^Long [Ll]oops(?: Vol \d)? - (?P<key>.+?)(?: \d)? - (?P<bars>\d+) Bars$'
       scope: group
       match_on: style
+      tempo: per-loop
   LongLoops2_MIDILoops: {<<: *long_loops, title: Long Loops 2}
   LongLoops3_MIDILoops: {<<: *long_loops, title: Long Loops 3}
   LongLoops4_MIDILoops: {<<: *long_loops, title: Long Loops 4}

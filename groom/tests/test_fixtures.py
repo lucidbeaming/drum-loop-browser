@@ -43,7 +43,12 @@ def test_demos_are_written(library: Path) -> None:
 
 
 def test_every_naming_scheme_is_covered() -> None:
-    assert len({f.pack for f in FIXTURES}) == 8
-    assert {f.bpm_check for f in FIXTURES} == {"confirmed", "unverified", "audio-only", "unknown"}
+    assert len({f.pack for f in FIXTURES}) == 10
+    assert {f.bpm_check for f in FIXTURES} == {
+        "confirmed",
+        "audio-matched",
+        "unverified",
+        "unknown",
+    }
     assert any(f.file_bpm and f.file_bpm != f.bpm for f in FIXTURES), "a wrong MIDI tempo"
     assert {f.ppq for f in FIXTURES} == {96, 15360}

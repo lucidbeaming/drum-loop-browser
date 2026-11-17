@@ -6,11 +6,14 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
+
 from groom import __version__
 from groom.catalogue import Demo, Group, Loop
 from groom.names import split_camel
+from groom.soundfont import Kit
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -41,14 +44,38 @@ CREATE TABLE notes (
     loop_id TEXT NOT NULL REFERENCES loops, tick INTEGER NOT NULL, key INTEGER NOT NULL,
     vel INTEGER NOT NULL, dur INTEGER NOT NULL
 );
+CREATE TABLE features (
+    loop_id TEXT PRIMARY KEY REFERENCES loops,
+    pieces TEXT NOT NULL,  -- JSON list of kit families present
+    density REAL NOT NULL, density_by_piece TEXT NOT NULL,  -- hits per beat; JSON by family
+    swing8 REAL, swing16 REAL, triplet_share REAL NOT NULL, syncopation REAL NOT NULL,
+    simultaneity REAL NOT NULL, velocity_mean REAL NOT NULL, velocity_range INTEGER NOT NULL,
+    ghost_share REAL NOT NULL, four_on_floor INTEGER NOT NULL, backbeat INTEGER NOT NULL,
+    half_time INTEGER NOT NULL,
+    onset_vector BLOB NOT NULL  -- float32, one bar per kit family; see groom.features
+);
+CREATE TABLE tags (
+    loop_id TEXT NOT NULL REFERENCES loops, tag TEXT NOT NULL,
+    source TEXT NOT NULL,  -- rule | feature
+    confidence REAL NOT NULL, PRIMARY KEY (loop_id, tag)
+);
+CREATE TABLE similar (
+    loop_id TEXT NOT NULL REFERENCES loops, other_id TEXT NOT NULL REFERENCES loops,
+    rank INTEGER NOT NULL, score REAL NOT NULL, PRIMARY KEY (loop_id, rank)
+);
+CREATE TABLE kits (  -- drum kits in the preview SoundFont, from the audibility check
+    program INTEGER PRIMARY KEY, name TEXT NOT NULL,
+    keys TEXT NOT NULL  -- JSON list of notes that have a sample
+);
 CREATE INDEX notes_loop ON notes (loop_id);
+CREATE INDEX tags_tag ON tags (tag);
 CREATE INDEX loops_group ON loops (group_id);
 """
 
 
 def write_catalogue(
     path: Path, loops: Iterable[Loop], groups: Iterable[Group], demos: list[Demo],
-    pack_titles: dict[str, str],
+    pack_titles: dict[str, str], kits: list[Kit] | None = None,
 ) -> None:  # fmt: skip
     """Build the database in a temp file, then swap it in, so readers never see a partial one."""
     loops = list(loops)
@@ -97,6 +124,26 @@ def write_catalogue(
                 for n in lp.fitted.notes
             ],
         )
+        con.executemany(
+            f"INSERT INTO features VALUES ({', '.join('?' * 16)})",
+            [_feature_row(lp) for lp in loops if lp.features],
+        )
+        con.executemany(
+            "INSERT INTO tags VALUES (?, ?, ?, ?)",
+            [(lp.loop_id, t.tag, t.source, t.confidence) for lp in loops for t in lp.tags],
+        )
+        con.executemany(
+            "INSERT INTO similar VALUES (?, ?, ?, ?)",
+            [
+                (lp.loop_id, other, rank, score)
+                for lp in loops
+                for rank, (other, score) in enumerate(lp.similar, 1)
+            ],
+        )
+        con.executemany(
+            "INSERT INTO kits VALUES (?, ?, ?)",
+            [(k.program, k.name, json.dumps(sorted(k.keys))) for k in kits or []],
+        )
         con.commit()
     finally:
         con.close()
@@ -117,6 +164,18 @@ def _loop_row(lp: Loop) -> tuple[object, ...]:
         lp.meter[0], lp.meter[1], lp.meter_source, lp.bars, lp.bars_source,
         lp.parsed.ppq, lp.parsed.midi_type, lp.fitted.length, len(lp.fitted.notes),
         lp.status, json.dumps(lp.issues), json.dumps(lp.remarks),
+    )  # fmt: skip
+
+
+def _feature_row(lp: Loop) -> tuple[object, ...]:
+    f = lp.features
+    assert f is not None
+    return (
+        lp.loop_id, json.dumps(f.pieces), f.density, json.dumps(f.density_by_piece),
+        f.swing8, f.swing16, f.triplet_share, f.syncopation, f.simultaneity,
+        f.velocity_mean, f.velocity_range, f.ghost_share,
+        int(f.four_on_floor), int(f.backbeat), int(f.half_time),
+        f.vector.astype(np.float32).tobytes(),
     )  # fmt: skip
 
 

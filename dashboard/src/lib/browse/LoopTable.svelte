@@ -59,7 +59,8 @@
 
 	const BPM_MARK: Record<BpmCheck, { mark: string; label: string }> = {
 		confirmed: { mark: '✓', label: 'confirmed by the demo' },
-		unverified: { mark: '', label: 'from the name, not checked' },
+		'audio-matched': { mark: '✓', label: 'matched to the demo audio' },
+		unverified: { mark: '', label: 'not checked against audio' },
 		conflict: { mark: '!', label: 'conflicts with the demo' },
 		'audio-only': { mark: '≈', label: 'estimated from the demo' },
 		unknown: { mark: '', label: 'unknown' }

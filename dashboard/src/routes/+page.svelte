@@ -135,6 +135,7 @@
 				{playhead}
 				tempo={detail ? player.tempoFor(detail) : undefined}
 				ontoggle={toggle}
+				onselect={(id) => void select(id, false)}
 			/>
 		</aside>
 		<footer class="bottom">
