@@ -11,7 +11,7 @@ It has two parts:
 
 They share nothing except the git-ignored `data/` folder: groom writes the catalogue there, and the dashboard reads it.
 
-> **Status:** phase 1. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos. The dashboard has a FluidSynth playback spike; the loop browser comes next (phase 2).
+> **Status:** phase 2. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, and the dashboard browses, filters and auditions them through FluidSynth or a MIDI output. Analysis, tags and curation come next.
 
 ## Folder layout
 
@@ -29,7 +29,7 @@ Saved loops from the dashboard go to `/Users/lucid/_Audio/drum-loops`, where Rea
 
 | Variable | Default | Used by |
 |---|---|---|
-| `DRUM_LIBRARY_DIR` | `../patterns` | groom |
+| `DRUM_LIBRARY_DIR` | `../patterns` | groom, dashboard (vendor demos only) |
 | `DRUM_SOUNDFONT_DIR` | `../sf2` | groom, dashboard |
 | `DRUM_DATA_DIR` | `./data` | groom, dashboard |
 | `DRUM_EXPORT_DIR` | `/Users/lucid/_Audio/drum-loops` | dashboard |
@@ -61,7 +61,8 @@ uv run groom run                 # groom the library into data/ (about 5 s; firs
 uv run groom report              # per-pack coverage from the last run
 uv run groom inspect Angular_7_8 # everything known about a loop (ID or part of its path)
 uv run groom paths               # show the locations groom reads and writes
-uv run groom fixtures /tmp/fx    # write the synthetic test library
+uv run groom fixtures /tmp/fx --rules-out /tmp/fx.yaml   # write the synthetic test library and its rules
+uv run groom run --rules /tmp/fx.yaml                     # groom with other pack rules (default: packs.yaml)
 ```
 
 `groom run` does the following for every MIDI file:
@@ -89,7 +90,26 @@ Each loop's `bpm_check` says how far its tempo can be trusted:
 
 ### dashboard
 
-`make dev`, then open <http://localhost:5173/spike>. The spike page loads `lucidrum.sf2` into FluidSynth and plays a hand-made test loop on MIDI channel 10, with kit and tempo controls and a level meter.
+`make dev`, then open <http://localhost:5173>. The dashboard reads `data/catalogue.sqlite` (run `groom run` first) and refuses to start against a catalogue with a different schema version.
+
+- **Find:** pick a pack or *Needs review* in the sidebar, search (name, song, artist, style, pack, path, `7/8`, `120bpm`), and filter by BPM range, meter and kind. Column headers sort.
+- **Listen:** click a loop's name to play it. FluidSynth loads `lucidrum.sf2` on the first play. Loops play at their own BPM (or the global tempo, if *Loop's own tempo* is off or the BPM is unknown), repeat gaplessly, and with *Switch on the bar* the next loop takes over on the downbeat. *Fills play once* plays a fill a single time, then returns to the groove that was playing.
+- **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, review issues, and the vendor's WAV demo for the group.
+- **Kits and outputs:** choose any lucidrum kit (SFX is left out: it has no kick or snare). *Enable MIDI out* sends the same notes to a Web MIDI port, such as an IAC bus into Reason or REAPER, on channel 10 by default (Chrome; Safari has no Web MIDI).
+
+| Key (in the loop list) | Does |
+|---|---|
+| ↑ ↓, Page Up/Down, Home/End | Move; while playing, the new loop takes over |
+| Space | Play or stop the selected loop |
+| Enter | Play the selected loop |
+| Escape | Stop |
+| `/` (anywhere) | Jump to search |
+
+API routes (localhost only): `GET /api/loops`, `/api/loops/<id>` (with notes), `/api/midi/<id>` (normalised file), `/api/preview/<group>/<n>` (WAV demo, with byte ranges) and `/api/soundfont/<name>.sf2`.
+
+`/spike` is the phase 0 FluidSynth check: a hand-made test loop with kit and tempo controls and a level meter.
+
+The Playwright tests (`make e2e`) build their own catalogue from groom's synthetic fixtures (`dashboard/scripts/fixture-catalogue.mjs`, needs uv), so they never touch the real library.
 
 ## SoundFont
 

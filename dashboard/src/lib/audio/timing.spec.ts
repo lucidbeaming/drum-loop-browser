@@ -61,3 +61,29 @@ describe('TempoClock', () => {
 		expect(clock.tempo).toBe(60);
 	});
 });
+
+describe('TempoClock tempo map', () => {
+	it('maps times before a later tempo change with the earlier tempo', () => {
+		const clock = new TempoClock(0, 0, 120, 480);
+		clock.setTempo(60, 1920);
+		expect(clock.tickAt(500)).toBeCloseTo(480);
+		expect(clock.tickAt(3000)).toBeCloseTo(1920 + 480);
+		expect(clock.tempoAt(100)).toBe(120);
+		expect(clock.tempoAt(1920)).toBe(60);
+	});
+
+	it('replaces anchors at or after a new change', () => {
+		const clock = new TempoClock(0, 0, 120, 480);
+		clock.setTempo(60, 1920);
+		clock.setTempo(240, 960);
+		expect(clock.msAt(1920)).toBeCloseTo(1000 + 500);
+		expect(clock.tempo).toBe(240);
+	});
+
+	it('keeps mapping correctly after pruning', () => {
+		const clock = new TempoClock(0, 0, 120, 480);
+		clock.setTempo(60, 960);
+		clock.prune(1000);
+		expect(clock.msAt(1440)).toBeCloseTo(2000);
+	});
+});

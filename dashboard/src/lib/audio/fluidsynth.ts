@@ -1,12 +1,8 @@
 import type { AudioWorkletNodeSynthesizer, ISequencer } from 'js-synthesizer';
-import { eventsInRange, TempoClock, type Loop } from './timing';
+import type { NoteSink } from './scheduler';
 
 const DRUM_CHANNEL = 9; // MIDI channel 10
 const DRUM_BANK = 128;
-const PUMP_INTERVAL_MS = 25;
-const LOOKAHEAD_MS = 200;
-const START_DELAY_MS = 100;
-const NOTE_MS = 80;
 
 export interface DrumKit {
 	program: number;
@@ -14,27 +10,17 @@ export interface DrumKit {
 }
 
 /**
- * FluidSynth (js-synthesizer) running in an AudioWorklet, driven by our own look-ahead scheduler.
- * Hits are queued on FluidSynth's sequencer with absolute timestamps a little ahead of time, so
- * timing is sample-accurate even though the scheduler itself runs on a main-thread timer.
+ * FluidSynth (js-synthesizer) running in an AudioWorklet. Notes are queued on FluidSynth's own
+ * sequencer with absolute timestamps, so timing is sample-accurate even though the scheduler
+ * feeding it runs on a main-thread timer.
  */
-export class DrumSynth {
+export class FluidSynthOutput implements NoteSink {
 	private ctx?: AudioContext;
 	private synth?: AudioWorkletNodeSynthesizer;
 	private seq?: ISequencer;
 	private analyser?: AnalyserNode;
 	private clientId = 0;
 	private sfontId = 0;
-
-	private loop?: Loop;
-	private clock?: TempoClock;
-	private cursor = 0; // loop ticks scheduled so far
-	private timer?: ReturnType<typeof setInterval>;
-	private pumping = false;
-
-	get playing(): boolean {
-		return this.timer !== undefined;
-	}
 
 	/** Must be called from a user gesture (browsers only start audio after one). */
 	async start(soundfontUrl: string): Promise<void> {
@@ -75,26 +61,21 @@ export class DrumSynth {
 		this.requireSynth().midiProgramChange(DRUM_CHANNEL, program);
 	}
 
-	async play(loop: Loop, bpm: number): Promise<void> {
-		this.stop();
-		const seq = this.requireSeq();
+	async now(): Promise<number> {
 		await this.ctx?.resume();
-		const now = await seq.getTick();
-		this.loop = loop;
-		this.clock = new TempoClock(now + START_DELAY_MS, 0, bpm, loop.ppq);
-		this.cursor = 0;
-		this.timer = setInterval(() => void this.pump(), PUMP_INTERVAL_MS);
-		await this.pump();
+		return this.requireSeq().getTick();
 	}
 
-	setTempo(bpm: number): void {
-		// Everything up to the cursor is already queued, so the new tempo starts there.
-		this.clock?.setTempo(bpm, this.cursor);
+	note(atMs: number, key: number, vel: number, durMs: number): void {
+		this.seq?.sendEventToClientAt(
+			this.clientId,
+			{ type: 'note', channel: DRUM_CHANNEL, key, vel, duration: Math.max(1, Math.round(durMs)) },
+			Math.round(atMs),
+			true
+		);
 	}
 
-	stop(): void {
-		if (this.timer !== undefined) clearInterval(this.timer);
-		this.timer = undefined;
+	silence(): void {
 		this.seq?.removeAllEventsFromClient(this.clientId);
 		this.synth?.midiAllNotesOff(DRUM_CHANNEL);
 	}
@@ -110,40 +91,19 @@ export class DrumSynth {
 	}
 
 	async close(): Promise<void> {
-		this.stop();
+		this.silence();
 		this.seq?.close();
 		this.synth?.close();
 		await this.ctx?.close();
 	}
 
-	private async pump(): Promise<void> {
-		if (this.pumping || !this.loop || !this.clock || !this.seq) return;
-		this.pumping = true;
-		try {
-			const nowMs = await this.seq.getTick();
-			if (!this.playing) return;
-			const horizon = Math.floor(this.clock.tickAt(nowMs + LOOKAHEAD_MS));
-			for (const e of eventsInRange(this.loop, this.cursor, horizon)) {
-				this.seq.sendEventToClientAt(
-					this.clientId,
-					{ type: 'note', channel: DRUM_CHANNEL, key: e.key, vel: e.vel, duration: NOTE_MS },
-					Math.round(this.clock.msAt(e.tick)),
-					true
-				);
-			}
-			this.cursor = Math.max(this.cursor, horizon);
-		} finally {
-			this.pumping = false;
-		}
-	}
-
 	private requireSynth(): AudioWorkletNodeSynthesizer {
-		if (!this.synth) throw new Error('DrumSynth not started');
+		if (!this.synth) throw new Error('FluidSynth not started');
 		return this.synth;
 	}
 
 	private requireSeq(): ISequencer {
-		if (!this.seq) throw new Error('DrumSynth not started');
+		if (!this.seq) throw new Error('FluidSynth not started');
 		return this.seq;
 	}
 }

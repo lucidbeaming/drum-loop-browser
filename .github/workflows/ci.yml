@@ -33,6 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      # The Playwright tests read a catalogue that groom builds from its synthetic fixtures.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
       - run: npm ci
       - run: npm run lint
       - run: npm run check

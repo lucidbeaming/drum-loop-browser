@@ -12,3 +12,4 @@ function envPath(name: string, fallback: string): string {
 export const soundfontDir = envPath('DRUM_SOUNDFONT_DIR', path.join(repoRoot, '..', 'sf2'));
 export const dataDir = envPath('DRUM_DATA_DIR', path.join(repoRoot, 'data'));
 export const exportDir = envPath('DRUM_EXPORT_DIR', '/Users/lucid/_Audio/drum-loops');
+export const libraryDir = envPath('DRUM_LIBRARY_DIR', path.join(repoRoot, '..', 'patterns'));
