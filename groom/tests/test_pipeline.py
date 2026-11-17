@@ -117,6 +117,19 @@ def test_features_tags_and_similar(rows: dict[str, sqlite3.Row], paths: Paths) -
     assert similar and all(meters[a] == meters[b] for a, b in similar)
 
 
+def test_demo_at_another_tempo_keeps_the_name(rows: dict[str, sqlite3.Row]) -> None:
+    row = rows[FIXTURES[3].rel_path]
+    assert (row["bpm"], row["bpm_source"], row["status"]) == (150, "folder", "ok")
+    assert "Linear_Grit_MIDI_172.wav plays at 172 BPM, not the folder's 150" in row["remarks"]
+
+
+def test_fills_without_a_tempo_are_not_reviewed(rows: dict[str, sqlite3.Row]) -> None:
+    fill = rows["Fills_MIDILoops/Swung Fills/2 Bar Fills/Fill - Test Roll.mid"]
+    assert (fill["bpm_check"], fill["status"]) == ("unknown", "ok")
+    groove = rows["BarsFolder_MIDILoops/MIDI Loops/Test Groove - 8 Bars/TestGroove_8Bars_07.mid"]
+    assert groove["status"] == "review"
+
+
 def test_sibling_takes_the_demo_tempo(rows: dict[str, sqlite3.Row]) -> None:
     row = rows[FIXTURES[11].rel_path]
     assert row["bpm_source"] == "sibling-demo" and row["status"] == "ok"

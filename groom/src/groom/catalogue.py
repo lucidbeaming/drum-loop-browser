@@ -133,7 +133,10 @@ class Loop:
 
     @property
     def status(self) -> str:
-        if self.bpm_check in ("conflict", "audio-only", "unknown") or self.issues:
+        if self.issues or self.bpm_check in ("conflict", "audio-only"):
+            return "review"
+        # a fill with no tempo evidence follows the song's tempo anyway; a groove needs one
+        if self.bpm_check == "unknown" and self.kind != "fill":
             return "review"
         return "ok"
 
@@ -359,7 +362,9 @@ def align_tempos(groups: Iterable[Group], aligner: Aligner) -> None:
 
     Only loops whose tempo is in doubt (audio-only or conflict) are looked at, after
     ``normalise``. A strong alignment (see module align) makes a loop with no named tempo
-    audio-matched, and confirms a conflicting loop if it agrees with the loop's best name.
+    audio-matched, and confirms a conflicting loop if it agrees with the loop's best name. If
+    it doesn't, the demo was rendered at another tempo (vendors often demo loops at a second
+    tempo), which is not a conflict: the loop keeps its own tempo, unverified.
     """
     for group in groups:
         doubtful = [lp for lp in group.loops if lp.bpm_check in ("audio-only", "conflict")]
@@ -400,6 +405,13 @@ def _confirm_by_alignment(loop: Loop, strong: list[tuple[Demo, DemoTempo]]) -> N
     if any(abs(t.bpm - named.bpm) < SAME_BPM for _, t in strong):
         named.support, named.method = 1.0, "alignment"
         _set(loop, named.bpm, named.source, "confirmed")
+    elif strong:
+        demo, t = strong[0]
+        _set(loop, named.bpm, named.source, "unverified")
+        loop.remarks.append(
+            f"the demo {Path(demo.rel_path).name} plays at {t.bpm:g} BPM, not the "
+            f"{named.source}'s {named.bpm:g}"
+        )
 
 
 def _match_shared(loop: Loop, strong: list[tuple[Demo, DemoTempo]]) -> None:

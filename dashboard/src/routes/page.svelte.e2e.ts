@@ -40,7 +40,7 @@ test('finds a loop by pack, search and filters', async ({ page }) => {
 
 	await page.getByRole('button', { name: 'Clear filters' }).click();
 	await page.getByRole('button', { name: /Needs review/ }).click();
-	await expect(count(page)).toHaveText(`3 of ${TOTAL} loops`); // no tempo anywhere
+	await expect(count(page)).toHaveText(`2 of ${TOTAL} loops`); // grooves with no tempo anywhere
 });
 
 test('searches tags', async ({ page }) => {

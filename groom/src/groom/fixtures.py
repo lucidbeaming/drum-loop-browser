@@ -63,7 +63,7 @@ FIXTURES: tuple[FixtureLoop, ...] = (
     FixtureLoop("BpmMeterFolder_MIDIDrumLoops/100 7:8 Angles/Angles_7_8_Fill_1.mid",
                 "BpmMeterFolder_MIDIDrumLoops", 100, "confirmed", (7, 8), 1, "fill",
                 ppq=15360, midi_type=1, file_bpm=91, eot_beats=400),
-    # BPM + style in the folder; no demo
+    # BPM + style in the folder; the demo plays it at another tempo (not a conflict)
     FixtureLoop("BpmStyleFolder_MIDILoops/150_Grit/Linear_Grit_12.mid",
                 "BpmStyleFolder_MIDILoops", 150, "unverified", (4, 4), 2, "groove"),
     # Meter + style in the folder, tempo only in the MIDI file; the demo confirms it
@@ -108,6 +108,8 @@ DEMOS: tuple[FixtureDemo, ...] = (
                 FIXTURES[10].rel_path, 125, repeats=1),  # double time is off the grid
     FixtureDemo("FileDemo_MIDILoops/Demos/FileDemo - Test Crash.wav",
                 FIXTURES[12].rel_path, 128),
+    FixtureDemo("BpmStyleFolder_MIDILoops/Demos/Linear_Grit_MIDI_172.wav",
+                FIXTURES[3].rel_path, 172),
 )  # fmt: skip
 
 FIXTURE_RULES = """\
@@ -122,6 +124,10 @@ packs:
   BpmStyleFolder_MIDILoops:
     group: '^(?P<bpm>\\d+)_(?P<style>.+)$'
     file: '^Linear_(?P<key>.+)_(?P<variant>\\d+)$'
+    preview:
+      pattern: '^Linear_(?P<key>[A-Za-z]+)_MIDI_(?P<bpm>\\d+)$'
+      scope: group
+      match_on: style
   MeterStyleFolder_DrumLoops_MIDI:
     group: '^(?P<num>\\d+):(?P<den>\\d+)_(?P<style>.+)$'
     file: '^(?P<meter>[A-Za-z]+?)_(?P<kind>Grv|Fill)_?(?P<variant>\\d+)$'

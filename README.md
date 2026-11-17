@@ -87,9 +87,11 @@ Each loop's `bpm_check` says how far its tempo can be trusted:
 | `confirmed` | A demo's audio agrees with the named BPM |
 | `audio-matched` | No BPM in any name, but the MIDI lines up clearly with a demo |
 | `unverified` | Named BPM with no demo to check it against, or (`bpm_source = sibling-demo`) the tempo of a demo of another loop in the group |
-| `conflict` | The audio contradicts a name; all candidates (and the audio's own estimate) are kept for review |
+| `conflict` | The audio contradicts a name, but not clearly enough to say the demo is just at another tempo; all candidates are kept for review |
 | `audio-only` | No BPM in any name; estimated from the demo; needs review |
-| `unknown` | No BPM anywhere and no demo |
+| `unknown` | No BPM anywhere and no demo (reviewed for grooves; fills just follow the song tempo) |
+
+A demo that clearly plays at a different whole tempo than a loop's name is not a conflict: vendors often demo loops at a second tempo. The loop keeps its own tempo as `unverified`, with a remark giving the demo's tempo.
 
 `loop_id` is a hash of the normalised notes, so it survives renames and re-runs, and identical files become one loop.
 
