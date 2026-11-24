@@ -2,6 +2,8 @@
 
 Browse, preview, curate and sequence a library of MIDI drum loops (Python groomer + SvelteKit dashboard).
 
+Documentation: [lucidbeaming.com/art/code/drum-loop-browser](https://lucidbeaming.com/art/code/drum-loop-browser)
+
 ![The dashboard: library and pack sidebar, a sortable loop table with BPM, meter and review flags, an inspector with a drum grid for the selected 7/8 groove, and the sequencer and transport along the bottom. Shown with the synthetic test library](docs/images/dashboard.png)
 
 A local toolkit for browsing, previewing, curating and sketching with a personal library of MIDI drum loops, built for getting loops into Reason (Kong) and Reaper.
