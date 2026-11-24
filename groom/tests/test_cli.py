@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from groom import __version__
 from groom.cli import app
 from groom.fixtures import FIXTURES
 
@@ -12,7 +13,7 @@ runner = CliRunner()
 def test_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert result.output.strip() == "0.1.0"
+    assert result.output.strip() == __version__
 
 
 def test_fixtures_command_writes_library(tmp_path: Path) -> None:

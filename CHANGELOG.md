@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-23
+
+First public release of the drum loop toolkit: groom, which turns a MIDI drum loop library into a checked, tagged catalogue, and a SvelteKit dashboard for browsing, previewing, curating and sequencing it. You can try it without a library using the synthetic test catalogue. Exports default to `~/Music/drum-loops`. MIT licensed.
+
 ### Added
 - README: dashboard screenshot, "Try it without a loop library" (the synthetic fixture catalogue), SoundFont workaround (#14), current status, related projects, license scope (#15)
 - MIT license (#12)
@@ -13,3 +17,6 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 - `.gitignore`: Windows thumbnails and Sublime workspaces (#8)
+
+[Unreleased]: https://github.com/lucidbeaming/drum-loop-browser/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/lucidbeaming/drum-loop-browser/releases/tag/v1.0.0
