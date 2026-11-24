@@ -1,5 +1,9 @@
 # drum-loop-browser
 
+Browse, preview, curate and sequence a library of MIDI drum loops (Python groomer + SvelteKit dashboard).
+
+![The dashboard: library and pack sidebar, a sortable loop table with BPM, meter and review flags, an inspector with a drum grid for the selected 7/8 groove, and the sequencer and transport along the bottom. Shown with the synthetic test library](docs/images/dashboard.png)
+
 A local toolkit for browsing, previewing, curating and sketching with a personal library of MIDI drum loops, built for getting loops into Reason (Kong) and Reaper.
 
 It has two parts:
@@ -11,7 +15,7 @@ It has two parts:
 
 They share nothing except the git-ignored `data/` folder: groom writes the catalogue there and the dashboard reads it; the dashboard writes your curation there (`curation.sqlite`) and groom reads it.
 
-> **Status:** phase 5. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops. The dashboard browses and auditions them through FluidSynth or a MIDI output, curates them (favourites, ratings, tags, fixes, review queue, collections) and saves standard GM MIDI files for the DAW. The kit remap utility and the sequencer come next.
+> **Status:** all planned phases are done. `groom run` turns the whole library into a catalogue of normalised loops with checked tempos, rhythm features, tags and similar loops; `groom remap` maps loops onto a Kong kit's real pad layout. The dashboard browses and auditions them through FluidSynth or a MIDI output, curates them (favourites, ratings, tags, fixes, review queue, collections), sequences them in whole-bar lanes, and saves standard GM MIDI files for the DAW.
 
 ## Folder layout
 
@@ -52,6 +56,20 @@ make lint      # ruff, mypy, prettier, eslint, svelte-check
 make e2e       # Playwright smoke tests
 make dev       # dashboard at http://localhost:5173
 ```
+
+### Try it without a loop library
+
+The loop library itself is licensed and never in this repo, but groom can generate a small synthetic one (the same one the tests use). To browse it:
+
+```sh
+make setup
+cd dashboard
+node scripts/fixture-catalogue.mjs     # synthetic library + catalogue in dashboard/.fixtures/ (needs uv)
+npm run build
+DRUM_DATA_DIR=.fixtures/data DRUM_LIBRARY_DIR=.fixtures/library DRUM_EXPORT_DIR=.fixtures/exports npm run preview
+```
+
+The screenshot above is this catalogue. For sound, add a General MIDI SoundFont (see [SoundFont](#soundfont)) or pick a MIDI output.
 
 ### groom
 
@@ -163,7 +181,9 @@ The Playwright tests (`make e2e`) build their own catalogue from groom's synthet
 
 ## SoundFont
 
-Previews use `../sf2/lucidrum.sf2`. Its 12 kits were moved to General MIDI drum bank 128 with Roland GS program numbers by [`scripts/patch_lucidrum_banks.py`](scripts/patch_lucidrum_banks.py) (the original is kept as `lucidrum.orig.sf2`), so a file that sends no program change plays the Standard kit:
+Previews use `../sf2/lucidrum.sf2` (in `DRUM_SOUNDFONT_DIR`). The name is fixed for now ([#14](https://github.com/lucidbeaming/drum-loop-browser/issues/14)), so with another General MIDI SoundFont, such as the free [GeneralUser GS](https://schristiancollins.com/generaluser.php), save it there as `lucidrum.sf2`. The kit table below describes lucidrum itself.
+
+lucidrum's 12 kits were moved to General MIDI drum bank 128 with Roland GS program numbers by [`scripts/patch_lucidrum_banks.py`](scripts/patch_lucidrum_banks.py) (the original is kept as `lucidrum.orig.sf2`), so a file that sends no program change plays the Standard kit:
 
 | Program | Kit | Program | Kit |
 |---|---|---|---|
@@ -181,3 +201,13 @@ The loop library's license forbids redistribution in any form, including edited 
 - `.gitignore` excludes `patterns/`, `data/`, MIDI, audio, SoundFonts and databases.
 - A pre-commit hook (`.githooks/pre-commit`, enabled by `make setup`) rejects those files even if they are force-added.
 - Tests and CI use only synthetic fixtures generated in code (`groom/src/groom/fixtures.py`, `dashboard/src/lib/audio/fixtureLoop.ts`).
+
+## Related projects
+
+- [sftool](https://github.com/lucidbeaming/sftool): browse and preview SF2 soundfonts in a desktop GUI or terminal UI
+- [vid2midi](https://github.com/lucidbeaming/vid2midi): generate MIDI files from brightness levels in video
+- [Fluidsynth-Webapp](https://github.com/lucidbeaming/Fluidsynth-Webapp): a web app for switching FluidSynth instruments over its shell
+
+## License
+
+[MIT](LICENSE). The license covers this code only, not any loop library or SoundFont used with it.
