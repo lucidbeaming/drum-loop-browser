@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format is based on 
 ## [Unreleased]
 
 ### Added
+- README: dashboard screenshot, "Try it without a loop library" (the synthetic fixture catalogue), SoundFont workaround (#14), current status, related projects, license scope (#15)
 - MIT license (#12)
 
 ### Fixed
