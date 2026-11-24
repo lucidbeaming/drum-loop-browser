@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+- The default export folder is `../drum-loops`, next to the repo like `../patterns` and `../sf2`, instead of `~/Music/drum-loops` (#18)
+
 ## [1.0.0] - 2026-11-23
 
 First public release of the drum loop toolkit: groom, which turns a MIDI drum loop library into a checked, tagged catalogue, and a SvelteKit dashboard for browsing, previewing, curating and sequencing it. You can try it without a library using the synthetic test catalogue. Exports default to `~/Music/drum-loops`. MIT licensed.
