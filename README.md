@@ -26,17 +26,18 @@ midi-drums/
 ├── drum-loop-browser/   ← this repo
 │   └── data/            ← generated: catalogue, normalised MIDI, kits, remaps (git-ignored)
 ├── patterns/            ← the loop library (read-only, licensed: never commit)
-└── sf2/                 ← SoundFonts, including lucidrum.sf2 (read-only)
+├── sf2/                 ← SoundFonts, including lucidrum.sf2 (read-only)
+└── drum-loops/          ← loops saved from the dashboard (created on first save)
 ```
 
-Saved loops from the dashboard go to `~/Music/drum-loops` (or `DRUM_EXPORT_DIR`), so a DAW such as Reason or Reaper can pick them up from there.
+Saved loops from the dashboard go to `drum-loops/` (or `DRUM_EXPORT_DIR`), where a DAW such as Reason or Reaper can pick them up.
 
 | Variable | Default | Used by |
 |---|---|---|
 | `DRUM_LIBRARY_DIR` | `../patterns` | groom, dashboard (vendor demos only) |
 | `DRUM_SOUNDFONT_DIR` | `../sf2` | groom, dashboard |
 | `DRUM_DATA_DIR` | `./data` | groom, dashboard |
-| `DRUM_EXPORT_DIR` | `~/Music/drum-loops` | dashboard |
+| `DRUM_EXPORT_DIR` | `../drum-loops` | dashboard |
 
 ## Requirements
 
@@ -122,7 +123,7 @@ Saved loops are standard GM. To play them on a Kong kit in Reason, whose pads ar
 uv run groom kit from-screenshot "Kong kit.png" --name kong-default   # read the pads → data/kits/kong-default.yaml
 uv run groom kit show kong-default                                    # pads, roles and the GM → pad map
 uv run groom kit rebuild kong-default                                 # after editing roles in the YAML
-uv run groom remap ~/Music/drum-loops/"Funk set" --kit kong-default   # → data/remapped/Funk set (kong-default)/
+uv run groom remap ../../drum-loops/"Funk set" --kit kong-default   # → data/remapped/Funk set (kong-default)/
 ```
 
 - **Screenshot:** a screenshot of Kong's 4×4 pad grid, cropped to the pads with their labels, like those in `../screenshots/`. Pad 1 is bottom left and plays note 36; pad n plays 35 + n.
@@ -150,7 +151,7 @@ uv run groom remap ~/Music/drum-loops/"Funk set" --kit kong-default   # → data
 - **See:** the inspector shows the drum grid (darker = louder, with a playhead), the tempo check, review issues, the vendor's WAV demo for the group, and similar loops (click to open one).
 - **Curate:** favourite, rate (0–5), reject (rejected loops only show under *Rejected*), take notes, add or remove tags, and fix a loop's BPM, meter or kind. Fixes show at once, marked as pending, and `groom run` makes them permanent. *Needs review* works as a queue: *Keep*, *Fix…*, *Duplicate* or *Reject* moves on to the next loop. Everything is stored in `data/curation.sqlite`, keyed by loop ID, so it survives renames and re-grooming.
 - **Collections:** create one in the sidebar, add loops from the inspector (or mark several and add them at once), and reorder them in the collection view.
-- **Save for the DAW:** *Save .mid* (or `S`) writes the loop to the exports folder, `DRUM_EXPORT_DIR` (default `~/Music/drum-loops`), as a standard GM file: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars, named `{title}_{bpm}bpm_{num}-{den}_{bars}bars.mid`. Saving again overwrites it. Mark loops (`X` or the checkbox) to save, tag or collect several at once; *Save all* in a collection writes `<exports>/<collection>/01_…`, in order. *Save without tempo* leaves the tempo to the DAW. Add the exports folder to Reason's browser and Reaper's Media Explorer once.
+- **Save for the DAW:** *Save .mid* (or `S`) writes the loop to the exports folder, `DRUM_EXPORT_DIR` (default `../drum-loops`, next to the repo), as a standard GM file: Type 0, 480 PPQ, channel 10, tempo and meter at tick 0, exactly N bars, named `{title}_{bpm}bpm_{num}-{den}_{bars}bars.mid`. Saving again overwrites it. Mark loops (`X` or the checkbox) to save, tag or collect several at once; *Save all* in a collection writes `<exports>/<collection>/01_…`, in order. *Save without tempo* leaves the tempo to the DAW. Add the exports folder to Reason's browser and Reaper's Media Explorer once.
 - **Kits and outputs:** choose any lucidrum kit (SFX is left out: it has no kick or snare). *Enable MIDI out* sends the same notes to a Web MIDI port, such as an IAC bus into Reason or REAPER, on channel 10 by default (Chrome; Safari has no Web MIDI).
 
 - **Sequence:** the *Sequencer* panel builds an arrangement: a tempo, a meter and 1–4 lanes of loops, each starting on a bar and repeated a whole number of times.
