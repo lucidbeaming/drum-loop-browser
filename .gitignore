@@ -12,11 +12,15 @@ Icon?
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 
+# --- Windows ---
+Thumbs.db
+
 # --- Editors / IDEs ---
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea/
+*.sublime-workspace
 *.swp
 *.swo
 *~
