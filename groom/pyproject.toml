@@ -1,6 +1,6 @@
 [project]
 name = "groom"
-version = "1.0.0"
+version = "1.1.0"
 description = "Offline analysis, normalising, tagging and grooming of a MIDI drum loop library"
 authors = [
     { email = "zenphoto@gmail.com" }
