@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-23
+
+Exports now default to a `drum-loops/` folder next to the repo, alongside `../patterns` and `../sf2`, so the whole setup lives in one parent folder. If you relied on the old `~/Music/drum-loops` default, set `DRUM_EXPORT_DIR=~/Music/drum-loops`.
+
 ### Changed
 - The default export folder is `../drum-loops`, next to the repo like `../patterns` and `../sf2`, instead of `~/Music/drum-loops` (#18)
 
@@ -21,5 +25,6 @@ First public release of the drum loop toolkit: groom, which turns a MIDI drum lo
 ### Changed
 - `.gitignore`: Windows thumbnails and Sublime workspaces (#8)
 
-[Unreleased]: https://github.com/lucidbeaming/drum-loop-browser/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lucidbeaming/drum-loop-browser/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/lucidbeaming/drum-loop-browser/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lucidbeaming/drum-loop-browser/releases/tag/v1.0.0
